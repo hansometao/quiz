@@ -18,6 +18,8 @@ export struct AnalysisPage {
 
   private lineCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
   private barCtx:  CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
+  private isLineChartDrawn: boolean = false;
+  private isBarChartDrawn: boolean = false;
 
   aboutToAppear() { this.loadStats(); }
   onPageShow()    { this.loadStats(); }
@@ -25,16 +27,20 @@ export struct AnalysisPage {
   async loadStats() {
     this.loading = true;
     const db = DatabaseService.getInstance();
-    this.overall    = await db.getOverallStats();
-    this.daily      = await db.getDailyStats(this.selectedDays);
-    this.categories = await db.getCategoryStats();
+    this.overall    = await db.stats.getOverall();
+    this.daily      = await db.stats.getDailyStats(this.selectedDays);
+    this.categories = await db.stats.getCategoryStats();
     this.loading = false;
+    this.isLineChartDrawn = false;
+    this.isBarChartDrawn = false;
     this.drawLineChart();
     this.drawBarChart();
   }
 
   // ── 折线图（近 N 天正确率趋势） ──
   private drawLineChart(): void {
+    if (this.isLineChartDrawn) return;
+    this.isLineChartDrawn = true;
     const c = this.lineCtx;
     const W = Math.max(this.lineCanvasWidth, 100);  // 响应式宽度，最小 100px
     const H = 140;
@@ -92,6 +98,8 @@ export struct AnalysisPage {
 
   // ── 柱状图（各分类正确率） ──
   private drawBarChart(): void {
+    if (this.isBarChartDrawn) return;
+    this.isBarChartDrawn = true;
     const c = this.barCtx;
     const W = Math.max(this.barCanvasWidth, 100);  // 响应式宽度，最小 100px
     const H = 160;

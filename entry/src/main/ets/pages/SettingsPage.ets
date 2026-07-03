@@ -8,7 +8,6 @@ const PREF_NAME = 'quiz_settings';
 
 @Component
 export struct SettingsPage {
-  @State darkMode: boolean = false;
   @State fontSize: number = 1;   // 0=小 1=中 2=大
   @State soundEnabled: boolean = true;
   @State vibrationEnabled: boolean = true;
@@ -31,7 +30,6 @@ export struct SettingsPage {
     try {
       const ctx = getContext(this) as common.UIAbilityContext;
       this.pref = await preferences.getPreferences(ctx, PREF_NAME);
-      this.darkMode            = await this.pref.get('darkMode',          false) as boolean;
       this.fontSize            = await this.pref.get('fontSize',          1)     as number;
       this.soundEnabled        = await this.pref.get('soundEnabled',      true)  as boolean;
       this.vibrationEnabled    = await this.pref.get('vibrationEnabled',  true)  as boolean;
@@ -97,7 +95,7 @@ export struct SettingsPage {
   // ── 清除记录 ──
   async doClearHistory() {
     try {
-      await DatabaseService.getInstance().clearAllHistory();
+      await DatabaseService.getInstance().backup.clearAllHistory();
       this.showConfirmClear = false;
       this.showMsg('答题记录已清除');
     } catch (e) {
@@ -115,11 +113,6 @@ export struct SettingsPage {
           Column() {
             // ── 外观 ──
             this.GroupTitle('外观')
-            this.SwitchRow('深色模式', this.darkMode, (v: boolean) => {
-              this.darkMode = v; this.save('darkMode', v);
-              // 深色模式需要重启应用后生效（需配置 dark 资源目录）
-              this.showMsg('深色模式将在重启应用后生效');
-            })
             Column() {
               Row() {
                 Text('字体大小').fontSize(15).fontColor($r('app.color.text_primary')).layoutWeight(1)

@@ -16,7 +16,7 @@ import { DateUtils } from '../utils/DateUtils';
 @Entry
 @Component
 struct HistoryDetailPage {
-  private sessionId: number = (router.getParams() as Record<string, number>)['sessionId'];
+  private sessionId: number = (router.getParams() as Record<string, number> | null)?.['sessionId'] ?? 0;
 
   @State session: PracticeSession | null = null;
   @State records: AnswerRecord[] = [];
@@ -30,31 +30,40 @@ struct HistoryDetailPage {
     const db = DatabaseService.getInstance();
     // 同时查 session 和所有答题记录（含题目信息）
     const [sessions, records] = await Promise.all([
-      db.getSessions(200),
-      db.getAnswersBySession(this.sessionId),
+      db.sessions.getCompleted(200),
+      db.sessions.getAnswersBySession(this.sessionId),
     ]);
     this.records = records;
     // 从已查到的 sessions 中找到对应 session
     const found = sessions.find(s => s.id === this.sessionId);
     if (found) {
       this.session = found;
-    } else if (records.length > 0) {
-      // 兜底：session 可能未完成，手动组装
-      const correctCnt = records.filter(r => r.isCorrect === AnswerStatus.CORRECT).length;
-      const totalMs = records.reduce((s, r) => s + (r.timeSpentMs ?? 0), 0);
-      this.session = {
-        id:           this.sessionId,
-        bankId:       0,
-        mode:         'random' as PracticeMode,
-        configJson:   '{}',
-        totalCount:   records.length,
-        correctCount: correctCnt,
-        durationSec:  Math.round(totalMs / 1000),
-        totalScore:   0,
-        status:       'completed' as SessionStatus,
-        startedAt:    records[0].answeredAt,
-        finishedAt:   records[records.length - 1].answeredAt,
-      } as PracticeSession;
+    } else {
+      // getCompleted 仅返回 completed 状态的 session，尝试用 getById（不限制 status）单独查询
+      const direct = await db.sessions.getById(this.sessionId);
+      if (direct) {
+        this.session = direct;
+      } else if (records.length > 0) {
+        // 兜底：session 记录缺失，手动组装
+        const correctCnt = records.filter(r => r.isCorrect === AnswerStatus.CORRECT).length;
+        // 时长用首末答题时间差（与 ResultPage.calcDuration 算法保持一致）
+        const times = records.map(r => r.answeredAt);
+        const first = Math.min(...times);
+        const last  = Math.max(...times);
+        this.session = {
+          id:           this.sessionId,
+          bankId:       0,
+          mode:         'sequential' as PracticeMode,
+          configJson:   '{}',
+          totalCount:   records.length,
+          correctCount: correctCnt,
+          durationSec:  last - first,  // 单条记录时 first === last，结果为 0
+          totalScore:   0,
+          status:       'completed' as SessionStatus,
+          startedAt:    first,
+          finishedAt:   last,
+        } as PracticeSession;
+      }
     }
     this.loading = false;
   }

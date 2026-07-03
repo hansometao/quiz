@@ -1,6 +1,7 @@
 import router from '@ohos.router';
 import picker from '@ohos.file.picker';
 import common from '@ohos.app.ability.common';
+import promptAction from '@ohos.promptAction';
 import { ExcelParser } from '../service/ExcelParser';
 import { DatabaseService } from '../service/DatabaseService';
 import { LoadingOverlay } from '../components/CommonComponents';
@@ -162,6 +163,8 @@ struct ImportPage {
       };
     } catch (e) {
       console.error('解析失败', e);
+      this.result = null;
+      promptAction.showToast({ message: '解析失败：' + ((e as Error).message || '未知错误') });
     }
     this.loading = false;
   }
@@ -172,9 +175,9 @@ struct ImportPage {
     this.loadingMsg = `正在导入 ${this.result.successCount} 道题...`;
     try {
       const db = DatabaseService.getInstance();
-      const bankId = await db.insertBank(this.editName, '', this.result.filePath);
-      await db.insertQuestions(bankId, this.result.questions);
-      await db.updateBankCount(bankId);
+      const bankId = await db.banks.insert(this.editName, '', this.result.filePath);
+      await db.questions.batchInsert(bankId, this.result.questions);
+      await db.banks.refreshCount(bankId);
       this.loading = false;
       router.back();
     } catch (e) {

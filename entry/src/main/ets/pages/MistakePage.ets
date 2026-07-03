@@ -14,7 +14,7 @@ export struct MistakePage {
 
   async loadMistakes() {
     this.loading = true;
-    this.mistakes = await DatabaseService.getInstance().getMistakesWithQuestions();
+    this.mistakes = await DatabaseService.getInstance().mistakes.getWithQuestions();
     this.loading = false;
   }
 
@@ -115,9 +115,8 @@ export struct MistakePage {
 
   private startMistakePractice(): void {
     if (this.mistakes.length === 0) return;
-    // 用第一个错题的 bankId 作为练习会话的题库标识
-    // 错题专练时 QuizEngine.getMistakeQuestionsV2 会取该题库 + 其他题库的所有错题
-    const bankId = this.mistakes[0].bankId;
+    // 错题专练：传 0 表示全题库错题，QuizEngine.questions.getMistakesForPractice 会取所有题库的错题
+    const bankId = 0;
     const config: PracticeConfig = {
       mode: PracticeMode.MISTAKE,
       totalCount: Math.min(20, this.mistakes.length),

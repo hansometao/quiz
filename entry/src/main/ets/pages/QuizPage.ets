@@ -9,8 +9,8 @@ import { DateUtils } from '../utils/DateUtils';
 @Entry
 @Component
 struct QuizPage {
-  private bankId: number = (router.getParams() as Record<string, number>)['bankId'];
-  private config: PracticeConfig = JSON.parse((router.getParams() as Record<string, string>)['config'] ?? '{}');
+  private bankId: number = (router.getParams() as Record<string, number> | null)?.['bankId'] ?? 0;
+  private config: PracticeConfig = JSON.parse((router.getParams() as Record<string, string> | null)?.['config'] ?? '{}');
 
   @State questions: Question[] = [];
   @State currentIdx: number = 0;
@@ -22,6 +22,7 @@ struct QuizPage {
   @State remaining: number = 0;     // 剩余时间（秒），0=不限时
   @State startTime: number = 0;
   @State questionStartTime: number = 0;
+  @State skippedIndices: number[] = [];
   private timer: number = -1;
 
   aboutToAppear() {
@@ -36,7 +37,7 @@ struct QuizPage {
     const engine = new QuizEngine();
     this.questions = await engine.buildQuestionList(this.bankId, this.config);
     const db = DatabaseService.getInstance();
-    this.sessionId = await db.insertSession(this.bankId, this.config.mode, this.config, this.questions.length);
+    this.sessionId = await db.sessions.insert(this.bankId, this.config.mode, this.config, this.questions.length);
     this.loading = false;
     this.startTime = DateUtils.now();
     this.questionStartTime = Date.now();
@@ -187,7 +188,9 @@ struct QuizPage {
   }
 
   private async submit(): Promise<void> {
+    if (this.sessionId === 0) return;
     if (!this.currentQuestion) return;
+    if (this.skippedIndices.indexOf(this.currentIdx) >= 0) return;
     const q = this.currentQuestion;
     const userAns = this.currentAnswer || '';
     const timeMs = Date.now() - this.questionStartTime;
@@ -201,13 +204,13 @@ struct QuizPage {
       isCorrect = engine.checkAnswer(q, userAns) ? AnswerStatus.CORRECT : AnswerStatus.WRONG;
     }
 
-    await db.insertAnswer(this.sessionId, q.id, userAns, isCorrect, timeMs);
+    await db.sessions.insertAnswer(this.sessionId, q.id, userAns, isCorrect, timeMs);
 
     // 同步更新错题本（使用用户设置的阈值）
     if (isCorrect === AnswerStatus.WRONG) {
-      await db.upsertMistake(q.id, q.bankId, userAns);
+      await db.mistakes.upsert(q.id, q.bankId, userAns);
     } else if (isCorrect === AnswerStatus.CORRECT) {
-      await db.onCorrectAnswer(q.id, db.autoRemoveThreshold);
+      await db.mistakes.onCorrectAnswer(q.id, db.autoRemoveThreshold);
     }
 
     const newSubmitted = new Map(this.submitted);
@@ -217,11 +220,11 @@ struct QuizPage {
 
   private skip(): void {
     if (!this.currentQuestion) return;
-    // 记录为跳过
-    const newAnswers = new Map(this.answers);
-    newAnswers.set(this.currentIdx, '__SKIPPED__');
-    this.answers = newAnswers;
-    DatabaseService.getInstance().insertAnswer(
+    // 记录为跳过：不再用魔术字符串污染 answers，改用 skippedIndices 标记
+    if (this.skippedIndices.indexOf(this.currentIdx) < 0) {
+      this.skippedIndices = [...this.skippedIndices, this.currentIdx];
+    }
+    DatabaseService.getInstance().sessions.insertAnswer(
       this.sessionId, this.currentQuestion.id, '', AnswerStatus.SKIPPED, 0
     );
     const newSubmitted = new Map(this.submitted);
@@ -245,10 +248,10 @@ struct QuizPage {
 
   private async finishQuiz(): Promise<void> {
     this.clearTimer();
-    const records = await DatabaseService.getInstance().getAnswersBySession(this.sessionId);
+    const records = await DatabaseService.getInstance().sessions.getAnswersBySession(this.sessionId);
     const correct = records.filter(r => r.isCorrect === AnswerStatus.CORRECT).length;
     const score = records.reduce((sum, r) => sum + (r.isCorrect === AnswerStatus.CORRECT ? (r.question?.score ?? 1) : 0), 0);
-    await DatabaseService.getInstance().finishSession(this.sessionId, correct, this.elapsed, score);
+    await DatabaseService.getInstance().sessions.finish(this.sessionId, correct, this.elapsed, score);
 
     router.replaceUrl({
       url: 'pages/ResultPage',
@@ -258,7 +261,7 @@ struct QuizPage {
 
   private onExit(): void {
     this.clearTimer();
-    DatabaseService.getInstance().abandonSession(this.sessionId);
+    DatabaseService.getInstance().sessions.abandon(this.sessionId);
     router.back();
   }
 }

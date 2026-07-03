@@ -19,7 +19,7 @@ import { ArrayDataSource } from '../utils/LazyDataSource';
 @Entry
 @Component
 struct BankDetailPage {
-  private bankId: number = (router.getParams() as Record<string, number>)['bankId'];
+  private bankId: number = (router.getParams() as Record<string, number> | null)?.['bankId'] ?? 0;
 
   @State bank: QuestionBank | null = null;
   @State loading: boolean = true;
@@ -55,10 +55,10 @@ struct BankDetailPage {
     const db = DatabaseService.getInstance();
 
     if (reset) {
-      this.bank = await db.getBankById(this.bankId);
+      this.bank = await db.banks.getById(this.bankId);
     }
 
-    const questions = await db.getQuestions(this.bankId, {
+    const questions = await db.questions.getByBank(this.bankId, {
       types: this.filterType !== 'all' ? [this.filterType as QuestionType] : undefined,
       difficulties: this.filterDifficulty !== 0 ? [this.filterDifficulty as Difficulty] : undefined,
       limit: this.PAGE_SIZE,
@@ -76,9 +76,9 @@ struct BankDetailPage {
   async deleteQuestion(q: Question) {
     const db = DatabaseService.getInstance();
     try {
-      await db.deleteQuestionById(q.id);
-      await db.updateBankCount(this.bankId);
-      this.bank = await db.getBankById(this.bankId);
+      await db.questions.deleteById(q.id);
+      await db.banks.refreshCount(this.bankId);
+      this.bank = await db.banks.getById(this.bankId);
       this.showMsg('已删除题目');
       this.loadData(true);
     } catch {
@@ -90,16 +90,17 @@ struct BankDetailPage {
 
   async toggleStar(q: Question) {
     const db = DatabaseService.getInstance();
-    await db.updateQuestionMeta(q.id, { isStarred: !q.isStarred });
+    await db.questions.updateMeta(q.id, { isStarred: !q.isStarred });
     this.loadData(true);
   }
 
   async saveNote() {
     if (!this.selectedQuestion) return;
     const db = DatabaseService.getInstance();
-    await db.updateQuestionMeta(this.selectedQuestion.id, { userNote: this.noteText });
+    await db.questions.updateMeta(this.selectedQuestion.id, { userNote: this.noteText });
     this.showMsg('笔记已保存');
     this.showNoteDialog = false;
+    this.selectedQuestion = null;
     this.loadData(true);
   }
 

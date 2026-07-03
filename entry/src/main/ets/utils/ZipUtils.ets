@@ -1,5 +1,6 @@
 import zlib from '@ohos.zlib';
 import fs from '@ohos.file.fs';
+import util from '@ohos.util';
 import hilog from '@ohos.hilog';
 
 const TAG = 'ZipUtils';
@@ -10,10 +11,12 @@ const TAG = 'ZipUtils';
  * @param destDir  目标目录（解压到此）
  */
 export async function unzip(zipPath: string, destDir: string): Promise<void> {
-  // 确保目标目录存在
   try {
     fs.mkdirSync(destDir, true);
-  } catch {}
+  } catch (err) {
+    // 目录已存在无需处理，其他错误记录后继续尝试解压
+    hilog.debug(0x0000, TAG, `mkdir skipped: ${JSON.stringify(err)}`);
+  }
 
   const options: zlib.Options = { level: zlib.CompressLevel.COMPRESS_LEVEL_DEFAULT_COMPRESSION };
   await zlib.decompressFile(zipPath, destDir, options);
@@ -21,19 +24,23 @@ export async function unzip(zipPath: string, destDir: string): Promise<void> {
 }
 
 /**
- * 读取文件文本内容
+ * 读取文件文本内容（UTF-8 解码，支持多字节字符与 BOM）
  */
 export function readTextFile(path: string): string {
+  let file;
   try {
-    const file = fs.openSync(path, fs.OpenMode.READ_ONLY);
+    file = fs.openSync(path, fs.OpenMode.READ_ONLY);
     const stat = fs.statSync(path);
     const buf = new ArrayBuffer(stat.size);
     fs.readSync(file.fd, buf);
-    fs.closeSync(file);
-    return bufferToString(buf);
+    return decodeUtf8(buf);
   } catch (e) {
-    hilog.warn(0x0000, TAG, `读取文件失败: ${path}`);
+    hilog.warn(0x0000, TAG, `读取文件失败: ${path}, err: ${JSON.stringify(e)}`);
     return '';
+  } finally {
+    if (file) {
+      try { fs.closeSync(file); } catch {}
+    }
   }
 }
 
@@ -56,7 +63,6 @@ export function rmdir(path: string): void {
   try {
     const stat = fs.statSync(path);
     if (stat.isDirectory()) {
-      // 递归删除子项
       const entries = fs.listFileSync(path);
       for (const entry of entries) {
         rmdir(path + '/' + entry);
@@ -66,20 +72,16 @@ export function rmdir(path: string): void {
       fs.unlinkSync(path);
     }
   } catch (e) {
-    hilog.warn(0x0000, TAG, `删除失败: ${path}`);
+    hilog.warn(0x0000, TAG, `删除失败: ${path}, err: ${JSON.stringify(e)}`);
   }
 }
 
-function bufferToString(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf);
-  let str = '';
-  for (let i = 0; i < bytes.length; i++) {
-    str += String.fromCharCode(bytes[i]);
-  }
-  // 简单 UTF-8 解码（ASCII + 中文）
-  try {
-    return decodeURIComponent(escape(str));
-  } catch {
-    return str;
-  }
+/**
+ * UTF-8 解码：使用 util.TextDecoder 流式解码，
+ * 避免 String.fromCharCode 逐字节拼接的 O(n²) 性能问题，
+ * 以及 escape/decodeURIComponent 在多字节边界处的解析失败。
+ */
+export function decodeUtf8(buf: ArrayBuffer): string {
+  const textDecoder = util.TextDecoder.create('utf-8');
+  return textDecoder.decodeWithStream(new Uint8Array(buf), { stream: false });
 }

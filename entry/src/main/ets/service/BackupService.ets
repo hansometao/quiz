@@ -1,13 +1,14 @@
 /**
  * BackupService.ets
- * 备份 & 还原服务
- *   - exportBackup()   ：将全量数据打包为 JSON，写入沙盒 files/ 目录并弹出分享
- *   - importBackup()   ：读取用户选择的 .quizbackup 文件，解析后还原至 DB
- *   - exportMistakes() ：将错题导出为 CSV（xlsx 依赖原生 zlib，改为 CSV 更可靠）
+ * 备份 & 还原服务（单例）
+ *   - exportBackup()     ：将全量数据打包为 JSON，写入沙盒 files/ 目录并返回路径供分享
+ *   - importBackup()     ：读取用户选择的 .quizbackup 文件，校验后还原至 DB
+ *   - exportMistakesCSV()：将错题导出为 CSV（含完整字段）
  */
 
 import fs from '@ohos.file.fs';
 import picker from '@ohos.file.picker';
+import util from '@ohos.util';
 import common from '@ohos.app.ability.common';
 import { DatabaseService } from './DatabaseService';
 import { QuestionBank, Question, PracticeSession, AnswerRecord, MistakeItem } from '../model/Models';
@@ -26,6 +27,7 @@ interface BackupData {
 export class BackupService {
   private static instance: BackupService;
   private db: DatabaseService = DatabaseService.getInstance();
+  private textDecoder = util.TextDecoder.create('utf-8');
 
   static getInstance(): BackupService {
     if (!BackupService.instance) {
@@ -38,30 +40,24 @@ export class BackupService {
 
   /**
    * 将全量数据序列化为 JSON，保存到沙盒，返回文件路径
+   * 并行拉取各题库题目与各会话答题记录，提升多题库场景下的导出速度。
    */
   async exportBackup(ctx: common.UIAbilityContext): Promise<string> {
-    const banks    = await this.db.getAllBanks();
-    const sessions = await this.db.getAllSessions();
-    const mistakes = await this.db.getAllMistakes();
+    const banks    = await this.db.banks.getAll();
+    const sessions = await this.db.sessions.getAll();
+    const mistakes = await this.db.mistakes.getAll();
 
-    // 逐题库拉取题目
-    const questions: Question[] = [];
-    for (const b of banks) {
-      // 使用可选链保护，bank.id 理论上必有，但类型标注为可选
-      if (b.id !== undefined) {
-        const qs = await this.db.getQuestions(b.id, { limit: 99999, offset: 0 });
-        questions.push(...qs);
-      }
-    }
+    // 并行拉取各题库的题目
+    const questionGroups = await Promise.all(
+      banks.filter(b => b.id !== undefined).map(b => this.db.questions.getByBank(b.id, { limit: 999999, offset: 0 }))
+    );
+    const questions: Question[] = questionGroups.flat();
 
-    // 逐 Session 拉取答题记录
-    const answerRecords: AnswerRecord[] = [];
-    for (const s of sessions) {
-      if (s.id !== undefined) {
-        const recs = await this.db.getAnswerRecords(s.id);
-        answerRecords.push(...recs);
-      }
-    }
+    // 并行拉取各会话的答题记录
+    const answerGroups = await Promise.all(
+      sessions.filter(s => s.id !== undefined).map(s => this.db.sessions.getAnswersBySession(s.id))
+    );
+    const answerRecords: AnswerRecord[] = answerGroups.flat();
 
     const data: BackupData = {
       version:     1,
@@ -91,8 +87,8 @@ export class BackupService {
    * 返回 { success, message }
    */
   async importBackup(ctx: common.UIAbilityContext): Promise<{ success: boolean; message: string }> {
+    let tmpPath: string | null = null;
     try {
-      // 打开文件选择器
       const docPicker = new picker.DocumentViewPicker(ctx);
       const uris: string[] = await docPicker.select({
         maxSelectNumber: 1,
@@ -103,35 +99,43 @@ export class BackupService {
         return { success: false, message: '未选择文件' };
       }
 
-      const uri = uris[0];
       // 将 uri 拷贝到沙盒后读取（避免权限失效）
-      const tmpPath = ctx.cacheDir + '/import_tmp.quizbackup';
-      fs.copyFileSync(uri, tmpPath);
+      tmpPath = ctx.cacheDir + '/import_tmp.quizbackup';
+      fs.copyFileSync(uris[0], tmpPath);
 
-      const file = fs.openSync(tmpPath, fs.OpenMode.READ_ONLY);
       const stat = fs.statSync(tmpPath);
       const buf = new ArrayBuffer(stat.size);
+      const file = fs.openSync(tmpPath, fs.OpenMode.READ_ONLY);
       fs.readSync(file.fd, buf);
       fs.closeSync(file);
 
-      const json = this.arrayBufferToString(buf);
-      const data: BackupData = JSON.parse(json) as BackupData;
+      // 使用 TextDecoder 流式解码，避免 8192 字节切分破坏多字节字符
+      const json = this.textDecoder.decodeWithStream(new Uint8Array(buf), { stream: false });
+      const data = JSON.parse(json) as Partial<BackupData>;
 
+      // 数据结构校验：必填字段与各数组存在性
       if (!data.version || !data.banks) {
-        return { success: false, message: '文件格式不正确' };
+        return { success: false, message: '文件格式不正确：缺少 version 或 banks 字段' };
       }
+      const banks    = Array.isArray(data.banks)          ? data.banks          : [];
+      const questions = Array.isArray(data.questions)      ? data.questions      : [];
+      const sessions = Array.isArray(data.sessions)        ? data.sessions       : [];
+      const records  = Array.isArray(data.answerRecords)  ? data.answerRecords  : [];
+      const mistakes = Array.isArray(data.mistakes)       ? data.mistakes       : [];
 
-      // 执行还原（追加模式，不删除现有数据；如需覆盖可先调用 db.clearAll）
-      await this.db.restoreFromBackup(data.banks, data.questions, data.sessions, data.answerRecords, data.mistakes);
+      // 执行还原（追加模式，返回插入/跳过计数）
+      const result = await this.db.backup.restore(banks, questions, sessions, records, mistakes);
 
       // 清理临时文件
-      fs.unlinkSync(tmpPath);
+      this.safeUnlink(tmpPath);
+      tmpPath = null;
 
       return {
         success: true,
-        message: `还原成功：${data.banks.length} 个题库，${data.questions.length} 道题目`
+        message: `还原成功：新增 ${result.inserted} 条，跳过已存在 ${result.skipped} 条`
       };
     } catch (e) {
+      if (tmpPath) this.safeUnlink(tmpPath);
       const err = e as Error;
       return { success: false, message: '还原失败：' + err.message };
     }
@@ -140,30 +144,36 @@ export class BackupService {
   // ─────────────────── 导出错题 CSV ───────────────────
 
   /**
-   * 将全部错题导出为 CSV，保存到沙盒，返回文件路径
+   * 将全部错题导出为 CSV（含完整字段），保存到沙盒，返回文件路径
    */
   async exportMistakesCSV(ctx: common.UIAbilityContext): Promise<string> {
-    const mistakes = await this.db.getAllMistakes();
+    const mistakes = await this.db.mistakes.getWithQuestions();
 
-    // CSV 表头
+    // CSV 表头（补全分类/难度/解析/错次等关键字段）
     const rows: string[] = [
-      '题目,选项A,选项B,选项C,选项D,正确答案,我的答案,连续正确次数,最后练习时间'
+      '题库ID,题目,题型,分类,难度,选项A,选项B,选项C,选项D,选项E,正确答案,解析,我的答案,错误次数,连续正确次数,最后练习时间'
     ];
 
     for (const m of mistakes) {
-      const q = await this.db.getQuestionById(m.questionId);
+      const q = m.question;
       if (!q) continue;
-
       const row = [
+        String(q.bankId),
         this.csvEscape(q.question),
+        q.type,
+        this.csvEscape(q.category ?? ''),
+        String(q.difficulty),
         this.csvEscape(q.optionA ?? ''),
         this.csvEscape(q.optionB ?? ''),
         this.csvEscape(q.optionC ?? ''),
         this.csvEscape(q.optionD ?? ''),
+        this.csvEscape(q.optionE ?? ''),
         this.csvEscape(q.answer),
+        this.csvEscape(q.explanation ?? ''),
         this.csvEscape(m.myLastAnswer ?? ''),
+        String(m.wrongCount),
         String(m.consecutiveCorrect),
-        m.lastPracticeTime ?? '',
+        String(m.lastPracticeTime ?? 0),
       ].join(',');
       rows.push(row);
     }
@@ -182,7 +192,7 @@ export class BackupService {
   // ─────────────────── 分享文件 ───────────────────
 
   /**
-   * 调用系统分享，将指定文件分享出去（可分享到手机文件管理器/邮件/蓝牙等）
+   * 调用系统分享，将指定文件分享出去
    */
   async shareFile(ctx: common.UIAbilityContext, filePath: string): Promise<void> {
     const want = {
@@ -197,17 +207,6 @@ export class BackupService {
 
   // ─────────────────── 工具方法 ───────────────────
 
-  /** 安全地将 ArrayBuffer 转为 UTF-8 字符串（避免大文件栈溢出） */
-  private arrayBufferToString(buf: ArrayBuffer): string {
-    const CHUNK = 8192;
-    const uint8 = new Uint8Array(buf);
-    let result = '';
-    for (let i = 0; i < uint8.length; i += CHUNK) {
-      result += String.fromCharCode(...uint8.subarray(i, i + CHUNK));
-    }
-    return result;
-  }
-
   private dateTag(): string {
     const d = new Date();
     const pad = (n: number) => n.toString().padStart(2, '0');
@@ -216,10 +215,14 @@ export class BackupService {
 
   private csvEscape(s: string): string {
     if (!s) return '';
-    // 含逗号、引号或换行时包裹双引号
     if (s.includes(',') || s.includes('"') || s.includes('\n')) {
       return '"' + s.replace(/"/g, '""') + '"';
     }
     return s;
+  }
+
+  /** 安全删除临时文件，失败不抛错 */
+  private safeUnlink(path: string): void {
+    try { fs.unlinkSync(path); } catch {}
   }
 }

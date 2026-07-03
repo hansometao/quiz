@@ -10,11 +10,13 @@
  * 使用方式：
  *   1. 在根 Ability 初始化 BreakpointSystem.register(windowStage)
  *   2. 组件内用 @StorageProp('breakpoint') bp: string = 'sm' 订阅断点变化
- *   3. 用 BreakpointUtils.columns(bp) 等工具方法决定列数/宽度
  */
 
 import mediaQuery from '@ohos.mediaquery';
 import window from '@ohos.window';
+import hilog from '@ohos.hilog';
+
+const TAG = 'BreakpointUtils';
 
 /** 断点常量 */
 export class Breakpoint {
@@ -23,18 +25,19 @@ export class Breakpoint {
   static readonly LG = 'lg';
 }
 
-/** 断点系统（单例，全局注册一次） */
+/** 断点系统（全局注册一次；重复调用会先注销旧监听器，避免泄漏） */
 export class BreakpointSystem {
   private static smListener?: mediaQuery.MediaQueryListener;
   private static mdListener?: mediaQuery.MediaQueryListener;
   private static lgListener?: mediaQuery.MediaQueryListener;
-  // 保存回调引用，确保 off 能正确移除
   private static smCb?: (result: mediaQuery.MediaQueryResult) => void;
   private static mdCb?: (result: mediaQuery.MediaQueryResult) => void;
   private static lgCb?: (result: mediaQuery.MediaQueryResult) => void;
 
   static register(windowStage: window.WindowStage): void {
-    // 更新 AppStorage 中的 'breakpoint' 键
+    // 防重复注册：先注销旧监听器，避免 Ability 重建导致监听器累积泄漏
+    BreakpointSystem.unregister();
+
     const updateBp = (bp: string) => {
       AppStorage.setOrCreate('breakpoint', bp);
     };
@@ -47,9 +50,10 @@ export class BreakpointSystem {
       if (vp < 600)      updateBp(Breakpoint.SM);
       else if (vp < 840) updateBp(Breakpoint.MD);
       else               updateBp(Breakpoint.LG);
-    } catch {}
+    } catch (err) {
+      hilog.warn(0x0000, TAG, `read initial breakpoint failed: ${JSON.stringify(err)}`);
+    }
 
-    // 注册媒体查询监听器
     BreakpointSystem.smListener = mediaQuery.matchMediaSync('(width < 600vp)');
     BreakpointSystem.mdListener = mediaQuery.matchMediaSync('(600vp <= width < 840vp)');
     BreakpointSystem.lgListener = mediaQuery.matchMediaSync('(width >= 840vp)');
@@ -66,51 +70,18 @@ export class BreakpointSystem {
   static unregister(): void {
     if (BreakpointSystem.smListener && BreakpointSystem.smCb) {
       BreakpointSystem.smListener.off('change', BreakpointSystem.smCb);
+      BreakpointSystem.smListener = undefined;
+      BreakpointSystem.smCb = undefined;
     }
     if (BreakpointSystem.mdListener && BreakpointSystem.mdCb) {
       BreakpointSystem.mdListener.off('change', BreakpointSystem.mdCb);
+      BreakpointSystem.mdListener = undefined;
+      BreakpointSystem.mdCb = undefined;
     }
     if (BreakpointSystem.lgListener && BreakpointSystem.lgCb) {
       BreakpointSystem.lgListener.off('change', BreakpointSystem.lgCb);
+      BreakpointSystem.lgListener = undefined;
+      BreakpointSystem.lgCb = undefined;
     }
-  }
-}
-
-/** 断点工具函数 */
-export class BreakpointUtils {
-  /** 题库卡片列数：sm=1, md=2, lg=3 */
-  static bankColumns(bp: string): number {
-    if (bp === Breakpoint.LG) return 3;
-    if (bp === Breakpoint.MD) return 2;
-    return 1;
-  }
-
-  /** 历史/分析列表列数：sm=1, md=2, lg=2 */
-  static listColumns(bp: string): number {
-    return bp === Breakpoint.SM ? 1 : 2;
-  }
-
-  /** 是否使用双栏（主从）布局 */
-  static isDualPane(bp: string): boolean {
-    return bp === Breakpoint.LG;
-  }
-
-  /** 侧边栏宽度（双栏模式左侧） */
-  static sideWidth(bp: string): string {
-    return bp === Breakpoint.LG ? '320vp' : '0';
-  }
-
-  /** 内容区 padding */
-  static contentPadding(bp: string): number {
-    if (bp === Breakpoint.LG) return 32;
-    if (bp === Breakpoint.MD) return 24;
-    return 16;
-  }
-
-  /** 响应式值选择器 */
-  static value<T>(bp: string, sm: T, md: T, lg: T): T {
-    if (bp === Breakpoint.LG) return lg;
-    if (bp === Breakpoint.MD) return md;
-    return sm;
   }
 }

@@ -20,7 +20,7 @@ export struct BankListPage {
   async loadBanks() {
     this.loading = true;
     try {
-      this.banks = await DatabaseService.getInstance().getAllBanks();
+      this.banks = await DatabaseService.getInstance().banks.getAll();
     } catch (e) {
       console.error('加载题库失败', e);
     }

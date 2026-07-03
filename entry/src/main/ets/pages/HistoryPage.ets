@@ -15,7 +15,7 @@ export struct HistoryPage {
 
   async loadHistory() {
     this.loading = true;
-    this.sessions = await DatabaseService.getInstance().getSessions(100);
+    this.sessions = await DatabaseService.getInstance().sessions.getCompleted(100);
     this.loading = false;
   }
 

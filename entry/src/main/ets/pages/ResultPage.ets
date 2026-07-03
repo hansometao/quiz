@@ -7,7 +7,7 @@ import { ProgressRing, LoadingOverlay } from '../components/CommonComponents';
 @Entry
 @Component
 struct ResultPage {
-  private sessionId: number = (router.getParams() as Record<string, number>)['sessionId'];
+  private sessionId: number = (router.getParams() as Record<string, number> | null)?.['sessionId'] ?? 0;
 
   @State session: PracticeSession | null = null;
   @State records: AnswerRecord[] = [];
@@ -28,8 +28,8 @@ struct ResultPage {
     const db = DatabaseService.getInstance();
     // 先并发请求，避免串行等待
     const [sessions, records] = await Promise.all([
-      db.getSessions(200),
-      db.getAnswersBySession(this.sessionId),
+      db.sessions.getCompleted(200),
+      db.sessions.getAnswersBySession(this.sessionId),
     ]);
     this.records = records;
     // 从列表中查找对应 session

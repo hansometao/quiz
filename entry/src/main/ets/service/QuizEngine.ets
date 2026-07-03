@@ -15,14 +15,16 @@ export class QuizEngine {
 
     switch (config.mode) {
       case PracticeMode.MISTAKE:
-        // 错题专练：从错题本取题（使用新版方法，含练习进度）
-        questions = await this.db.getMistakeQuestionsV2(bankId);
+        // 错题专练：从错题本取题（bankId=0 表示全题库错题）
+        questions = await this.db.questions.getMistakesForPractice(bankId);
         break;
       default:
-        // 其他模式：从题库取，支持筛选
-        questions = await this.db.getQuestions(bankId, {
-          types:       config.types.length       > 0 ? config.types       : undefined,
-          categories:  config.categories.length  > 0 ? config.categories  : undefined,
+        // SEQUENTIAL/RANDOM/EXAM/CATEGORY/DIFFICULTY 均从题库取题；
+        // CATEGORY 与 DIFFICULTY 模式靠 config.categories / config.difficulties 筛选，
+        // 由 PracticeConfigPage 根据所选模式暴露对应筛选 UI。
+        questions = await this.db.questions.getByBank(bankId, {
+          types:        config.types.length        > 0 ? config.types        : undefined,
+          categories:   config.categories.length   > 0 ? config.categories   : undefined,
           difficulties: config.difficulties.length > 0 ? config.difficulties : undefined,
         });
     }
