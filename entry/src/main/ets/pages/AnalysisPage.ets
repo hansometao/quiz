@@ -180,8 +180,9 @@ export struct AnalysisPage {
                 .width('100%').height(140)
                 .onReady(() => this.drawLineChart())
                 .onAreaChange((_, newArea) => {
-                  if (newArea.width > 0) {
+                  if (newArea.width > 0 && newArea.width !== this.lineCanvasWidth) {
                     this.lineCanvasWidth = newArea.width as number;
+                    this.isLineChartDrawn = false;   // 重置标志以触发响应式重绘
                     this.drawLineChart();
                   }
                 })
@@ -197,8 +198,9 @@ export struct AnalysisPage {
                 .width('100%').height(160)
                 .onReady(() => this.drawBarChart())
                 .onAreaChange((_, newArea) => {
-                  if (newArea.width > 0) {
+                  if (newArea.width > 0 && newArea.width !== this.barCanvasWidth) {
                     this.barCanvasWidth = newArea.width as number;
+                    this.isBarChartDrawn = false;   // 重置标志以触发响应式重绘
                     this.drawBarChart();
                   }
                 })

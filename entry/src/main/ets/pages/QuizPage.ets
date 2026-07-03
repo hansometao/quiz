@@ -261,7 +261,9 @@ struct QuizPage {
 
   private onExit(): void {
     this.clearTimer();
-    DatabaseService.getInstance().sessions.abandon(this.sessionId);
+    if (this.sessionId > 0) {
+      DatabaseService.getInstance().sessions.abandon(this.sessionId);
+    }
     router.back();
   }
 }

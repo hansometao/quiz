@@ -15,7 +15,7 @@ struct ResultPage {
 
   get correctCount():  number { return this.records.filter(r => r.isCorrect === AnswerStatus.CORRECT).length; }
   get wrongCount():    number { return this.records.filter(r => r.isCorrect === AnswerStatus.WRONG).length; }
-  get skippedCount():  number { return this.records.filter(r => r.isCorrect === AnswerStatus.SKIPPED).length; }
+  get skippedCount():  number { return Math.max(0, this.totalCount - this.correctCount - this.wrongCount); }
   get totalCount():    number { return this.session?.totalCount ?? this.records.length; }
   get correctRate():   number { return this.totalCount > 0 ? this.correctCount / this.totalCount : 0; }
   get wrongRecords():  AnswerRecord[] { return this.records.filter(r => r.isCorrect === AnswerStatus.WRONG); }
@@ -85,7 +85,7 @@ struct ResultPage {
               }
               .margin({ bottom: 8 })
 
-              Text('用时 ' + DateUtils.formatDuration(this.records.length > 0 ? this.calcDuration() : 0))
+              Text('用时 ' + DateUtils.formatDuration(this.session?.durationSec ?? (this.records.length > 0 ? this.calcDuration() : 0)))
                 .fontSize(13).fontColor('#FFFFFFCC')
             }
             .margin({ left: 24 })

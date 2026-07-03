@@ -8,12 +8,14 @@ import { EmptyState, LoadingOverlay } from '../components/CommonComponents';
 export struct MistakePage {
   @State mistakes: MistakeItem[] = [];
   @State loading: boolean = false;
+  private threshold: number = 3;
 
   aboutToAppear() { this.loadMistakes(); }
   onPageShow() { this.loadMistakes(); }
 
   async loadMistakes() {
     this.loading = true;
+    this.threshold = DatabaseService.getInstance().autoRemoveThreshold;
     this.mistakes = await DatabaseService.getInstance().mistakes.getWithQuestions();
     this.loading = false;
   }
@@ -89,9 +91,9 @@ export struct MistakePage {
                   // 连续正确进度条
                   if (m.consecutiveCorrect > 0) {
                     Row() {
-                      Text('连续正确：' + m.consecutiveCorrect + '/3')
+                      Text('连续正确：' + m.consecutiveCorrect + '/' + this.threshold)
                         .fontSize(11).fontColor($r('app.color.text_secondary'))
-                      Progress({ value: m.consecutiveCorrect, total: 3 })
+                      Progress({ value: m.consecutiveCorrect, total: this.threshold })
                         .width(60).height(4)
                         .color($r('app.color.success')).backgroundColor($r('app.color.border'))
                         .margin({ left: 8 })

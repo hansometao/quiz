@@ -48,8 +48,14 @@ struct BankDetailPage {
       this.loading = true;
       this.ds.clear();
     }
-    if (!this.hasMore) return;
-    if (this.loadingMore) return;
+    if (!this.hasMore) {
+      if (reset) this.loading = false;   // 避免重置时 loading 卡死
+      return;
+    }
+    if (this.loadingMore) {
+      if (reset) this.loading = false;   // 重置与进行中的加载冲突时释放遮罩
+      return;
+    }
 
     this.loadingMore = !reset;
     const db = DatabaseService.getInstance();
