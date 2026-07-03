@@ -1,0 +1,39 @@
+#鸿蒙/ArkTS项目
+.igscrollIndex
+.idea/
+*.iml
+.gradle/
+build/
+.hvigor/
+local.properties
+*.hap
+*.hap.unopt
+*.hap.opt
+*.js
+*.jsc
+*.ets.js
+.localized
+node_modules/
+.dep/
+.ohpm/
+openharmony/
+.DS_Store
+Thumbs.db
+*.log
+*.bak
+*.swp
+*~
+
+# IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+
+# 资源备份
+backup/
+exports/
+
+# 测试覆盖率
+coverage/

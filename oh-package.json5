@@ -1,0 +1,11 @@
+{
+  "modelVersion": "5.0.0",
+  "name": "quiz-harmony",
+  "version": "1.0.0",
+  "description": "鸿蒙题库练习 App - 完全离线本地运行",
+  "main": "",
+  "author": "",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {}
+}

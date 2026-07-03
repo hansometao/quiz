@@ -1,0 +1,20 @@
+{
+  "color": [
+    { "name": "start_window_background", "value": "#FFFFFF" },
+    { "name": "primary", "value": "#0A84FF" },
+    { "name": "primary_dark", "value": "#0060CC" },
+    { "name": "success", "value": "#34C759" },
+    { "name": "danger", "value": "#FF3B30" },
+    { "name": "warning", "value": "#FF9500" },
+    { "name": "bg_primary", "value": "#F2F2F7" },
+    { "name": "bg_card", "value": "#FFFFFF" },
+    { "name": "text_primary", "value": "#1C1C1E" },
+    { "name": "text_secondary", "value": "#6C6C70" },
+    { "name": "text_tertiary", "value": "#AEAEB2" },
+    { "name": "border", "value": "#E5E5EA" },
+    { "name": "dark_bg_primary", "value": "#1C1C1E" },
+    { "name": "dark_bg_card", "value": "#2C2C2E" },
+    { "name": "dark_text_primary", "value": "#FFFFFF" },
+    { "name": "dark_text_secondary", "value": "#AEAEB2" }
+  ]
+}
