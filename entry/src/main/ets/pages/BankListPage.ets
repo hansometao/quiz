@@ -8,13 +8,18 @@ import { EmptyState, LoadingOverlay } from '../components/CommonComponents';
 export struct BankListPage {
   @State banks: QuestionBank[] = [];
   @State loading: boolean = false;
+  @StorageProp('tabTick') @Watch('onTabTick') private tabTick: number = 0;
+  @StorageProp('activeTab') private activeTab: number = 0;
 
   aboutToAppear() {
     this.loadBanks();
   }
 
-  onPageShow() {
-    this.loadBanks();
+  // Index 切换/回显时通过 AppStorage 通知刷新（@Component 子组件不接收 onPageShow）
+  private onTabTick(): void {
+    if (this.activeTab === 0) {
+      this.loadBanks();
+    }
   }
 
   async loadBanks() {

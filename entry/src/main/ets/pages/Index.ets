@@ -9,6 +9,21 @@ import { SettingsPage } from './SettingsPage';
 struct Index {
   @State currentTab: number = 0;
 
+  // 通知当前激活的 Tab 子组件刷新数据（子组件通过 @Watch 监听 tabTick）
+  private notifyTab(index: number): void {
+    AppStorage.setOrCreate<number>('activeTab', index);
+    AppStorage.setOrCreate<number>('tabTick', Date.now());
+  }
+
+  onPageShow() {
+    // 从子页面返回时刷新当前 Tab（子组件自身不接收页面级生命周期）
+    this.notifyTab(this.currentTab);
+  }
+
+  aboutToAppear() {
+    this.notifyTab(this.currentTab);
+  }
+
   build() {
     Tabs({ barPosition: BarPosition.End, index: this.currentTab }) {
       TabContent() { BankListPage() }
@@ -26,7 +41,10 @@ struct Index {
       TabContent() { SettingsPage() }
         .tabBar(this.TabBar('设置', '⚙️', 4))
     }
-    .onChange((index) => { this.currentTab = index; })
+    .onChange((index) => {
+      this.currentTab = index;
+      this.notifyTab(index);
+    })
     .barHeight(56)
     .animationDuration(200)
     .backgroundColor($r('app.color.bg_primary'))

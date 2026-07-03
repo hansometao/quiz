@@ -9,9 +9,17 @@ import { DateUtils } from '../utils/DateUtils';
 export struct HistoryPage {
   @State sessions: PracticeSession[] = [];
   @State loading: boolean = false;
+  @StorageProp('tabTick') @Watch('onTabTick') private tabTick: number = 0;
+  @StorageProp('activeTab') private activeTab: number = 0;
 
   aboutToAppear() { this.loadHistory(); }
-  onPageShow() { this.loadHistory(); }
+
+  // Index 切换/回显时通过 AppStorage 通知刷新（@Component 子组件不接收 onPageShow）
+  private onTabTick(): void {
+    if (this.activeTab === 2) {
+      this.loadHistory();
+    }
+  }
 
   async loadHistory() {
     this.loading = true;

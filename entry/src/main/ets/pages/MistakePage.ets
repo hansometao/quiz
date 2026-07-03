@@ -9,9 +9,17 @@ export struct MistakePage {
   @State mistakes: MistakeItem[] = [];
   @State loading: boolean = false;
   private threshold: number = 3;
+  @StorageProp('tabTick') @Watch('onTabTick') private tabTick: number = 0;
+  @StorageProp('activeTab') private activeTab: number = 0;
 
   aboutToAppear() { this.loadMistakes(); }
-  onPageShow() { this.loadMistakes(); }
+
+  // Index 切换/回显时通过 AppStorage 通知刷新（@Component 子组件不接收 onPageShow）
+  private onTabTick(): void {
+    if (this.activeTab === 1) {
+      this.loadMistakes();
+    }
+  }
 
   async loadMistakes() {
     this.loading = true;

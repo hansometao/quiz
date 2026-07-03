@@ -20,9 +20,17 @@ export struct AnalysisPage {
   private barCtx:  CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
   private isLineChartDrawn: boolean = false;
   private isBarChartDrawn: boolean = false;
+  @StorageProp('tabTick') @Watch('onTabTick') private tabTick: number = 0;
+  @StorageProp('activeTab') private activeTab: number = 0;
 
   aboutToAppear() { this.loadStats(); }
-  onPageShow()    { this.loadStats(); }
+
+  // Index 切换/回显时通过 AppStorage 通知刷新（@Component 子组件不接收 onPageShow）
+  private onTabTick(): void {
+    if (this.activeTab === 3) {
+      this.loadStats();
+    }
+  }
 
   async loadStats() {
     this.loading = true;
