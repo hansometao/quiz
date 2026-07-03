@@ -28,23 +28,17 @@ struct HistoryDetailPage {
   async loadData() {
     this.loading = true;
     const db = DatabaseService.getInstance();
-    // 同时查 session 和所有答题记录（含题目信息）
-    const [sessions, records] = await Promise.all([
-      db.sessions.getCompleted(200),
-      db.sessions.getAnswersBySession(this.sessionId),
-    ]);
-    this.records = records;
-    // 从已查到的 sessions 中找到对应 session
-    const found = sessions.find(s => s.id === this.sessionId);
-    if (found) {
-      this.session = found;
-    } else {
-      // getCompleted 仅返回 completed 状态的 session，尝试用 getById（不限制 status）单独查询
-      const direct = await db.sessions.getById(this.sessionId);
-      if (direct) {
-        this.session = direct;
+    try {
+      // 直接按主键查 session，避免 getCompleted 全量查询再 find 的无谓开销
+      const [session, records] = await Promise.all([
+        db.sessions.getById(this.sessionId),
+        db.sessions.getAnswersBySession(this.sessionId),
+      ]);
+      this.records = records;
+      if (session) {
+        this.session = session;
       } else if (records.length > 0) {
-        // 兜底：session 记录缺失，手动组装
+        // 兜底：session 记录缺失，根据答题记录手动组装
         const correctCnt = records.filter(r => r.isCorrect === AnswerStatus.CORRECT).length;
         // 时长用首末答题时间差（与 ResultPage.calcDuration 算法保持一致）
         const times = records.map(r => r.answeredAt);
@@ -64,8 +58,12 @@ struct HistoryDetailPage {
           finishedAt:   last,
         } as PracticeSession;
       }
+    } catch (e) {
+      console.error('HistoryDetailPage loadData 失败', e);
+    } finally {
+      // 无论成功失败都释放 loading，避免界面永久转圈
+      this.loading = false;
     }
-    this.loading = false;
   }
 
   build() {

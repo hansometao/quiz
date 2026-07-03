@@ -1,8 +1,11 @@
+import common from '@ohos.app.ability.common';
 import { BankListPage } from './BankListPage';
 import { MistakePage } from './MistakePage';
 import { HistoryPage } from './HistoryPage';
 import { AnalysisPage } from './AnalysisPage';
 import { SettingsPage } from './SettingsPage';
+import { DatabaseService } from '../service/DatabaseService';
+import { getContext } from '@ohos.arkui.UIContext';
 
 @Entry
 @Component
@@ -20,7 +23,14 @@ struct Index {
     this.notifyTab(this.currentTab);
   }
 
-  aboutToAppear() {
+  async aboutToAppear() {
+    // 确保 DB 初始化完成后再通知子组件加载数据，避免首屏访问未就绪的仓库
+    // init 已幂等且并发安全（内部缓存 Promise），多次调用复用同一 Promise
+    try {
+      await DatabaseService.getInstance().init(getContext(this) as common.Context);
+    } catch (e) {
+      // 初始化失败仍通知子组件，由子组件的 try/catch 兜底显示错误态
+    }
     this.notifyTab(this.currentTab);
   }
 

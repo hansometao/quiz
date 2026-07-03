@@ -96,7 +96,8 @@ export struct BankCard {
   }
 
   private formatRate(rate: number | undefined): string {
-    if (!rate || isNaN(rate)) return '--%';
+    // 0 是合法的正确率，不能用 !rate 误判；只有 undefined/NaN 才显示 '--%'
+    if (rate === undefined || rate === null || isNaN(rate)) return '--%';
     return Math.round(rate * 100) + '%';
   }
 }

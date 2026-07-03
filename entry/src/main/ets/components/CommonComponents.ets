@@ -71,6 +71,7 @@ export struct LoadingOverlay {
       .width('100%')
       .height('100%')
       .position({ x: 0, y: 0 })
+      .hitTestBehavior(HitTestMode.Block)   // 拦截底层触摸，避免加载期间误触按钮
       .zIndex(999)
     }
   }
@@ -81,14 +82,19 @@ export struct LoadingOverlay {
 /** 进度环组件（Canvas 自绘） */
 @Component
 export struct ProgressRing {
-  @Prop progress: number;   // 0~1
-  @Prop size: number;
-  @Prop strokeWidth: number;
-  @Prop color: string;
-  @Prop bgColor: string;
+  @Prop @Watch('onPropChange') progress: number;   // 0~1
+  @Prop @Watch('onPropChange') size: number;
+  @Prop @Watch('onPropChange') strokeWidth: number;
+  @Prop @Watch('onPropChange') color: string;
+  @Prop @Watch('onPropChange') bgColor: string;
 
   private settings: RenderingContextSettings = new RenderingContextSettings(true);
   private ctx: CanvasRenderingContext2D = new CanvasRenderingContext2D(this.settings);
+
+  // 任一属性变化时触发重绘（@Prop 变化不会自动重绘 Canvas）
+  private onPropChange(): void {
+    this.draw();
+  }
 
   build() {
     Canvas(this.ctx)

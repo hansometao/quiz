@@ -66,9 +66,9 @@ export class QuizEngine {
         return correct === user;
 
       case QuestionType.MULTI: {
-        // 多选：将字母排序后比较
+        // 多选：去除常见分隔符（含中文顿号、分号、斜杠）后排序比较
         const sortLetters = (s: string) =>
-          s.replace(/[,，\s]/g, '').split('').sort().join('');
+          s.replace(/[,，;；、\s\/|]/g, '').split('').sort().join('');
         return sortLetters(correct) === sortLetters(user);
       }
 

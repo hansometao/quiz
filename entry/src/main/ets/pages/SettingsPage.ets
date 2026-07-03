@@ -33,8 +33,11 @@ export struct SettingsPage {
       this.fontSize            = await this.pref.get('fontSize',          1)     as number;
       this.soundEnabled        = await this.pref.get('soundEnabled',      true)  as boolean;
       this.vibrationEnabled    = await this.pref.get('vibrationEnabled',  true)  as boolean;
-      this.autoRemoveThreshold = await this.pref.get('autoRemove',        3)     as number;
-    } catch {}
+      // 阈值统一由 DatabaseService 管理（键 'auto_remove_threshold'），避免双键分叉
+      this.autoRemoveThreshold = DatabaseService.getInstance().autoRemoveThreshold;
+    } catch (e) {
+      console.error('加载设置失败', e);
+    }
   }
 
   async save(key: string, value: preferences.ValueType) {
@@ -146,8 +149,7 @@ export struct SettingsPage {
                 .padding({ left: 16, right: 16, bottom: 12 })
                 .onChange((v) => {
                   this.autoRemoveThreshold = Math.round(v);
-                  this.save('autoRemove', this.autoRemoveThreshold);
-                  // 同步到 DatabaseService，使答题时的 onCorrectAnswer 立即生效
+                  // 阈值统一由 DatabaseService 持久化（键 'auto_remove_threshold'），使答题时立即生效
                   DatabaseService.getInstance().syncAutoRemoveThreshold(this.autoRemoveThreshold);
                 })
             }

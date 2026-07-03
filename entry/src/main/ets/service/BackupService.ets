@@ -47,9 +47,9 @@ export class BackupService {
     const sessions = await this.db.sessions.getAll();
     const mistakes = await this.db.mistakes.getAll();
 
-    // 并行拉取各题库的题目
+    // 并行拉取各题库的题目（不传 limit，避免硬编码截断）
     const questionGroups = await Promise.all(
-      banks.filter(b => b.id !== undefined).map(b => this.db.questions.getByBank(b.id, { limit: 999999, offset: 0 }))
+      banks.filter(b => b.id !== undefined).map(b => this.db.questions.getByBank(b.id))
     );
     const questions: Question[] = questionGroups.flat();
 
@@ -74,8 +74,11 @@ export class BackupService {
     const filePath = ctx.filesDir + '/' + fileName;
 
     const file = fs.openSync(filePath, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
-    fs.writeSync(file.fd, json);
-    fs.closeSync(file);
+    try {
+      fs.writeSync(file.fd, json);
+    } finally {
+      fs.closeSync(file);
+    }
 
     return filePath;
   }
@@ -106,8 +109,11 @@ export class BackupService {
       const stat = fs.statSync(tmpPath);
       const buf = new ArrayBuffer(stat.size);
       const file = fs.openSync(tmpPath, fs.OpenMode.READ_ONLY);
-      fs.readSync(file.fd, buf);
-      fs.closeSync(file);
+      try {
+        fs.readSync(file.fd, buf);
+      } finally {
+        fs.closeSync(file);
+      }
 
       // 使用 TextDecoder 流式解码，避免 8192 字节切分破坏多字节字符
       const json = this.textDecoder.decodeWithStream(new Uint8Array(buf), { stream: false });
@@ -183,8 +189,11 @@ export class BackupService {
     const filePath = ctx.filesDir + '/' + fileName;
 
     const file = fs.openSync(filePath, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
-    fs.writeSync(file.fd, csv);
-    fs.closeSync(file);
+    try {
+      fs.writeSync(file.fd, csv);
+    } finally {
+      fs.closeSync(file);
+    }
 
     return filePath;
   }
@@ -215,10 +224,16 @@ export class BackupService {
 
   private csvEscape(s: string): string {
     if (!s) return '';
-    if (s.includes(',') || s.includes('"') || s.includes('\n')) {
-      return '"' + s.replace(/"/g, '""') + '"';
+    // CSV 公式注入防护：以 = + - @ 制表符/回车 开头的字段会被 Excel 当作公式执行，
+    // 在前面补单引号中和（Excel 打开时单引号不显示，仅作为文本前缀标记）
+    let v = s;
+    if (/^[=+\-@\t\r]/.test(v)) {
+      v = "'" + v;
     }
-    return s;
+    if (v.includes(',') || v.includes('"') || v.includes('\n') || v.includes('\r')) {
+      return '"' + v.replace(/"/g, '""') + '"';
+    }
+    return v;
   }
 
   /** 安全删除临时文件，失败不抛错 */

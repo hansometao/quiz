@@ -240,13 +240,23 @@ export class ExcelParser {
   private normalizeAnswer(answer: string, type: QuestionType): string {
     const a = answer.trim();
     if (type === QuestionType.JUDGE) {
+      // 精确匹配，避免 "不对"/"不正确" 被 includes('对') 误判为正确
       const lower = a.toLowerCase();
-      if (lower === 't' || lower === 'true' || lower.includes('正确') || lower.includes('对')) return '正确';
+      const correctSet = ['对', '正确', 't', 'true', '√', '是', 'yes', 'right', 'y', '1'];
+      const wrongSet   = ['错', '错误', 'f', 'false', '×', '否', 'no', 'wrong', 'n', '0'];
+      if (correctSet.includes(lower) || correctSet.includes(a)) return '正确';
+      if (wrongSet.includes(lower) || wrongSet.includes(a)) return '错误';
+      // 含"不"前缀的否定（如"不对""不正确"）判错
+      if (a.startsWith('不')) return '错误';
       return '错误';
     }
     if (type === QuestionType.MULTI) {
-      // 统一为连续大写字母，如 "A,B,D" → "ABD"
-      return a.replace(/[,，\s]/g, '').toUpperCase();
+      // 去除常见分隔符（含中文顿号、分号、斜杠）后大写，如 "A、B,D" → "ABD"
+      return a.replace(/[,，;；、\s\/|]/g, '').toUpperCase();
+    }
+    if (type === QuestionType.FILL) {
+      // 填空题保留大小写（答案常为英文单词/代码），不强制大写
+      return a;
     }
     return a.toUpperCase();
   }

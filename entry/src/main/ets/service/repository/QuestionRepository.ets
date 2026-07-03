@@ -73,9 +73,9 @@ export class QuestionRepository {
       args.push(...options.difficulties);
     }
     sql += ` ORDER BY q.seq_no ASC`;
-    if (options?.limit) {
+    if (options?.limit !== undefined && options.limit > 0) {
       sql += ` LIMIT ? OFFSET ?`;
-      args.push(options.limit, options.offset ?? 0);
+      args.push(options.limit, Math.max(0, options.offset ?? 0));
     }
 
     const result = await this.store.querySql(sql, args);
@@ -167,28 +167,42 @@ export class QuestionRepository {
   /** 供 SessionRepository.getAnswersBySession 使用：从已含题目字段的 ResultSet 解析 Question */
   rowToQuestion(result: relationalStore.ResultSet): Question {
     return {
-      id:           result.getLong(result.getColumnIndex('id')),
-      bankId:       result.getLong(result.getColumnIndex('bank_id')),
-      seqNo:        result.getLong(result.getColumnIndex('seq_no')),
-      type:         result.getString(result.getColumnIndex('type')) as QuestionType,
-      question:     result.getString(result.getColumnIndex('question')),
-      optionA:      result.getString(result.getColumnIndex('option_a')),
-      optionB:      result.getString(result.getColumnIndex('option_b')),
-      optionC:      result.getString(result.getColumnIndex('option_c')),
-      optionD:      result.getString(result.getColumnIndex('option_d')),
-      optionE:      result.getString(result.getColumnIndex('option_e')),
-      answer:       result.getString(result.getColumnIndex('answer')),
-      explanation:  result.getString(result.getColumnIndex('explanation')),
-      category:     result.getString(result.getColumnIndex('category')),
-      difficulty:   result.getLong(result.getColumnIndex('difficulty')) as Difficulty,
-      score:        result.getDouble(result.getColumnIndex('score')),
-      isStarred:    result.getLong(result.getColumnIndex('is_starred')) === 1,
-      isFlagged:    result.getLong(result.getColumnIndex('is_flagged')) === 1,
-      userNote:     result.getString(result.getColumnIndex('user_note')),
-      createdAt:    result.getLong(result.getColumnIndex('created_at')),
-      attemptCount: result.columnNames.includes('attempt_count') ? result.getLong(result.getColumnIndex('attempt_count')) : 0,
-      correctCount: result.columnNames.includes('correct_count') ? result.getLong(result.getColumnIndex('correct_count')) : 0,
-      lastAnswered: result.columnNames.includes('last_answered') ? result.getLong(result.getColumnIndex('last_answered')) : 0,
+      id:           this.getLong(result, 'id'),
+      bankId:       this.getLong(result, 'bank_id'),
+      seqNo:        this.getLong(result, 'seq_no'),
+      type:         this.getString(result, 'type') as QuestionType,
+      question:     this.getString(result, 'question'),
+      optionA:      this.getString(result, 'option_a'),
+      optionB:      this.getString(result, 'option_b'),
+      optionC:      this.getString(result, 'option_c'),
+      optionD:      this.getString(result, 'option_d'),
+      optionE:      this.getString(result, 'option_e'),
+      answer:       this.getString(result, 'answer'),
+      explanation:  this.getString(result, 'explanation'),
+      category:     this.getString(result, 'category'),
+      difficulty:   this.getLong(result, 'difficulty') as Difficulty,
+      score:        this.getDouble(result, 'score'),
+      isStarred:    this.getLong(result, 'is_starred') === 1,
+      isFlagged:    this.getLong(result, 'is_flagged') === 1,
+      userNote:     this.getString(result, 'user_note'),
+      createdAt:    this.getLong(result, 'created_at'),
+      attemptCount: this.getLong(result, 'attempt_count'),
+      correctCount: this.getLong(result, 'correct_count'),
+      lastAnswered: this.getLong(result, 'last_answered'),
     };
+  }
+
+  // 列可能不存在（JOIN 子集场景），getColumnIndex 返回 -1 时给默认值，避免 getLong(-1) 行为未定义
+  private getLong(result: relationalStore.ResultSet, col: string): number {
+    const idx = result.getColumnIndex(col);
+    return idx >= 0 ? result.getLong(idx) : 0;
+  }
+  private getString(result: relationalStore.ResultSet, col: string): string {
+    const idx = result.getColumnIndex(col);
+    return idx >= 0 ? result.getString(idx) : '';
+  }
+  private getDouble(result: relationalStore.ResultSet, col: string): number {
+    const idx = result.getColumnIndex(col);
+    return idx >= 0 ? result.getDouble(idx) : 0;
   }
 }

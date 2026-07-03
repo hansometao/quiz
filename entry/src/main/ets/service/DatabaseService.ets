@@ -100,13 +100,21 @@ const CREATE_SQL = `
   CREATE INDEX IF NOT EXISTS idx_answer_session ON answer_records(session_id);
   CREATE INDEX IF NOT EXISTS idx_answer_question ON answer_records(question_id);
   CREATE INDEX IF NOT EXISTS idx_session_bank ON practice_sessions(bank_id);
+  CREATE INDEX IF NOT EXISTS idx_session_finished ON practice_sessions(finished_at);
+  CREATE INDEX IF NOT EXISTS idx_mistakes_bank ON mistakes(bank_id);
+  CREATE INDEX IF NOT EXISTS idx_mistakes_updated ON mistakes(updated_at);
 `;
+
+// 拆分为单条 DDL，逐条执行，规避多语句 executeSql 在不同实现下的可移植性风险
+const DDL_STATEMENTS: string[] = CREATE_SQL.split(';').map(s => s.trim()).filter(s => s.length > 0);
 
 export class DatabaseService {
   private static instance: DatabaseService;
   private store: relationalStore.RdbStore | null = null;
   private prefStore: preferences.Preferences | null = null;
   private _autoRemoveThreshold: number = DEFAULT_THRESHOLD;
+  // 缓存进行中的 init Promise，避免并发调用重复建库与覆盖仓库实例
+  private initPromise: Promise<void> | null = null;
 
   // 各域仓库
   public banks!: BankRepository;
@@ -129,23 +137,41 @@ export class DatabaseService {
     return this._autoRemoveThreshold;
   }
 
-  /** 初始化数据库与仓库 */
-  async init(context: common.Context): Promise<void> {
-    if (this.store) return;
-    const config: relationalStore.StoreConfig = {
-      name: DB_NAME,
-      securityLevel: relationalStore.SecurityLevel.S1,
-    };
-    this.store = await relationalStore.getRdbStore(context, config);
-    await this.store.executeSql(CREATE_SQL);
-    await this.loadThreshold(context);
-    this.banks    = new BankRepository(this.store);
-    this.questions = new QuestionRepository(this.store);
-    this.sessions = new SessionRepository(this.store);
-    this.stats    = new StatsRepository(this.store);
-    this.mistakes = new MistakeRepository(this.store);
-    this.backup   = new BackupRepository(this.store);
-    hilog.info(0x0000, TAG, 'database initialized');
+  /** 初始化数据库与仓库（幂等，并发安全） */
+  init(context: common.Context): Promise<void> {
+    if (this.store) return Promise.resolve();
+    if (this.initPromise) return this.initPromise;
+    this.initPromise = this.doInit(context);
+    return this.initPromise;
+  }
+
+  private async doInit(context: common.Context): Promise<void> {
+    try {
+      const config: relationalStore.StoreConfig = {
+        name: DB_NAME,
+        securityLevel: relationalStore.SecurityLevel.S1,
+      };
+      this.store = await relationalStore.getRdbStore(context, config);
+      // 开启外键约束：SQLite 默认不启用，未开启则所有 ON DELETE CASCADE 失效
+      await this.store.executeSql('PRAGMA foreign_keys = ON;');
+      // 逐条执行 DDL，规避多语句 executeSql 的可移植性风险
+      for (const sql of DDL_STATEMENTS) {
+        await this.store.executeSql(sql);
+      }
+      await this.loadThreshold(context);
+      this.banks    = new BankRepository(this.store);
+      this.questions = new QuestionRepository(this.store);
+      this.sessions = new SessionRepository(this.store);
+      this.stats    = new StatsRepository(this.store);
+      this.mistakes = new MistakeRepository(this.store);
+      this.backup   = new BackupRepository(this.store);
+      hilog.info(0x0000, TAG, 'database initialized');
+    } catch (err) {
+      // 初始化失败：重置状态，允许后续重试
+      this.initPromise = null;
+      this.store = null;
+      throw err;
+    }
   }
 
   private async loadThreshold(context: common.Context): Promise<void> {

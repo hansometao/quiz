@@ -102,12 +102,17 @@ export struct OptionItem {
 /** 题目卡片组件（包含题干 + 选项/判断/填空） */
 @Component
 export struct QuestionCard {
-  @Prop question: Question;
+  @Prop @Watch('onQuestionChange') question: Question;
   @Prop selectedAnswer: string;     // 当前已选答案
   @Prop submitted: boolean;         // 是否已提交
   onAnswerChange: (answer: string) => void = () => {};
 
   @State fillInput: string = '';
+
+  // 切题时同步已存的填空答案，避免残留上一题输入且不回显已答内容
+  private onQuestionChange(): void {
+    this.fillInput = this.question.type === QuestionType.FILL ? (this.selectedAnswer ?? '') : '';
+  }
 
   build() {
     Column() {

@@ -37,6 +37,8 @@ struct BankDetailPage {
   private ds: ArrayDataSource<Question> = new ArrayDataSource<Question>();
   private page: number = 0;
   private hasMore: boolean = true;
+  // 请求代际：每次 reset 自增，await 后比较，丢弃过期请求结果（避免旧筛选数据混入新视图）
+  private loadGen: number = 0;
   readonly PAGE_SIZE = 30;
 
   aboutToAppear() { this.loadData(true); }
@@ -47,36 +49,43 @@ struct BankDetailPage {
       this.hasMore = true;
       this.loading = true;
       this.ds.clear();
+      this.loadGen++;  // 新一轮筛选，作废所有在途的旧请求
     }
-    if (!this.hasMore) {
-      if (reset) this.loading = false;   // 避免重置时 loading 卡死
-      return;
-    }
-    if (this.loadingMore) {
-      if (reset) this.loading = false;   // 重置与进行中的加载冲突时释放遮罩
-      return;
-    }
+    if (!this.hasMore) return;
 
+    const myGen = this.loadGen;
     this.loadingMore = !reset;
     const db = DatabaseService.getInstance();
 
-    if (reset) {
-      this.bank = await db.banks.getById(this.bankId);
+    try {
+      if (reset) {
+        this.bank = await db.banks.getById(this.bankId);
+        // bank 加载期间用户可能又切换了筛选，丢弃过期结果
+        if (myGen !== this.loadGen) return;
+      }
+
+      const questions = await db.questions.getByBank(this.bankId, {
+        types: this.filterType !== 'all' ? [this.filterType as QuestionType] : undefined,
+        difficulties: this.filterDifficulty !== 0 ? [this.filterDifficulty as Difficulty] : undefined,
+        limit: this.PAGE_SIZE,
+        offset: this.page * this.PAGE_SIZE,
+      });
+
+      // 请求返回后若已被新一轮 reset 作废，丢弃结果
+      if (myGen !== this.loadGen) return;
+
+      if (questions.length < this.PAGE_SIZE) this.hasMore = false;
+      questions.forEach(q => this.ds.push(q));
+      this.page++;
+    } catch (e) {
+      console.error('加载题目失败', e);
+    } finally {
+      // 仅当本次请求仍是最新代际时才释放遮罩，避免被后续请求的 loading 覆盖
+      if (myGen === this.loadGen) {
+        this.loading = false;
+        this.loadingMore = false;
+      }
     }
-
-    const questions = await db.questions.getByBank(this.bankId, {
-      types: this.filterType !== 'all' ? [this.filterType as QuestionType] : undefined,
-      difficulties: this.filterDifficulty !== 0 ? [this.filterDifficulty as Difficulty] : undefined,
-      limit: this.PAGE_SIZE,
-      offset: this.page * this.PAGE_SIZE,
-    });
-
-    if (questions.length < this.PAGE_SIZE) this.hasMore = false;
-    questions.forEach(q => this.ds.push(q));
-    this.page++;
-
-    this.loading = false;
-    this.loadingMore = false;
   }
 
   async deleteQuestion(q: Question) {

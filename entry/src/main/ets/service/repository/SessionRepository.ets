@@ -127,9 +127,10 @@ export class SessionRepository {
 
   /** 查询某会话全部答题（JOIN 题目） */
   async getAnswersBySession(sessionId: number): Promise<AnswerRecord[]> {
-    const sql = `SELECT ar.*, q.bank_id, q.seq_no, q.type, q.question, q.option_a, q.option_b,
+    // 显式列出 questions 全部字段，确保 rowToQuestion 能取到 id/is_starred 等列
+    const sql = `SELECT ar.*, q.id AS q_id, q.bank_id, q.seq_no, q.type, q.question, q.option_a, q.option_b,
                         q.option_c, q.option_d, q.option_e, q.answer, q.explanation, q.category,
-                        q.difficulty, q.score
+                        q.difficulty, q.score, q.is_starred, q.is_flagged, q.user_note, q.created_at
                  FROM answer_records ar
                  JOIN questions q ON q.id = ar.question_id
                  WHERE ar.session_id = ?
@@ -139,6 +140,10 @@ export class SessionRepository {
     const qRepo = new QuestionRepository(this.store);
     while (result.goToNextRow()) {
       const q = qRepo.rowToQuestion(result);
+      // ar.* 与 q.id 同名，getColumnIndex('id') 命中 answer_records.id；
+      // question 的真实 id 用别名 q_id 取回覆盖
+      const qIdIdx = result.getColumnIndex('q_id');
+      if (qIdIdx >= 0) q.id = result.getLong(qIdIdx);
       records.push({
         id:           result.getLong(result.getColumnIndex('id')),
         sessionId:    result.getLong(result.getColumnIndex('session_id')),

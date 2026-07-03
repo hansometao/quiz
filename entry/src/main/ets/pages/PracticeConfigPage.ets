@@ -1,4 +1,5 @@
 import router from '@ohos.router';
+import promptAction from '@ohos.promptAction';
 import { DatabaseService } from '../service/DatabaseService';
 import { PracticeMode, PracticeConfig, QuestionType, Difficulty } from '../model/Models';
 import { QuizEngine } from '../service/QuizEngine';
@@ -47,8 +48,47 @@ struct PracticeConfigPage {
     const db = DatabaseService.getInstance();
     const bank = await db.banks.getById(this.bankId);
     this.maxCount = bank?.totalCount ?? 0;
-    this.totalCount = Math.min(20, this.maxCount);
+    // 题库为空时 totalCount=0，开始按钮会被禁用；非空时取 min(20, 题数)
+    this.totalCount = this.maxCount > 0 ? Math.min(20, this.maxCount) : 0;
     this.categories = await db.questions.getCategories(this.bankId);
+  }
+
+  // 切换模式时重置不相关的配置项，避免跨模式状态泄漏（如 EXAM 限时带入 RANDOM）
+  private onModeChange(mode: PracticeMode): void {
+    if (this.selectedMode === mode) return;
+    this.selectedMode = mode;
+    // 离开限时模式时清零限时，避免非考试模式也带限时
+    if (mode !== PracticeMode.EXAM) {
+      this.timeLimitMin = 0;
+    }
+    // 离开分类/难度模式时清空对应选择，避免隐藏的筛选静默生效
+    if (mode !== PracticeMode.CATEGORY) {
+      this.selectedCategories = [];
+    }
+    if (mode !== PracticeMode.DIFFICULTY) {
+      this.selectedDifficulties = [];
+    }
+  }
+
+  // 开始前校验配置合法性
+  private validateConfig(): boolean {
+    if (this.maxCount <= 0) {
+      promptAction.showToast({ message: '题库为空，无法练习' });
+      return false;
+    }
+    if (this.totalCount <= 0) {
+      promptAction.showToast({ message: '请选择题目数量' });
+      return false;
+    }
+    if (this.selectedMode === PracticeMode.CATEGORY && this.selectedCategories.length === 0) {
+      promptAction.showToast({ message: '请至少选择一个分类' });
+      return false;
+    }
+    if (this.selectedMode === PracticeMode.DIFFICULTY && this.selectedDifficulties.length === 0) {
+      promptAction.showToast({ message: '请至少选择一个难度' });
+      return false;
+    }
+    return true;
   }
 
   build() {
@@ -79,7 +119,7 @@ struct PracticeConfigPage {
                   .fontColor(this.selectedMode === mode ? Color.White : $r('app.color.text_primary'))
                   .backgroundColor(this.selectedMode === mode ? $r('app.color.primary') : $r('app.color.bg_card'))
                   .border({ width: 1, color: this.selectedMode === mode ? $r('app.color.primary') : $r('app.color.border') })
-                  .onClick(() => this.selectedMode = mode)
+                  .onClick(() => this.onModeChange(mode))
               }
             })
           }
@@ -93,11 +133,13 @@ struct PracticeConfigPage {
           Row() {
             Slider({
               value: this.totalCount,
-              min: 5,
-              max: this.maxCount || 100,
-              step: 5,
+              // min 取 min(5, 题数) 避免题库不足 5 题时 min>max 行为未定义
+              min: this.maxCount > 0 ? Math.min(5, this.maxCount) : 1,
+              max: this.maxCount > 0 ? this.maxCount : 1,
+              step: 1,
             })
             .layoutWeight(1)
+            .enabled(this.maxCount > 0)
             .onChange((v) => { this.totalCount = Math.round(v); })
 
             Text(String(this.totalCount))
@@ -241,6 +283,7 @@ struct PracticeConfigPage {
   }
 
   private startPractice(): void {
+    if (!this.validateConfig()) return;
     const config: PracticeConfig = {
       mode:            this.selectedMode,
       totalCount:      this.totalCount,

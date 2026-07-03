@@ -50,6 +50,7 @@ struct ImportPage {
               .width('100%').height(52)
               .fontSize(16).borderRadius(12)
               .backgroundColor($r('app.color.primary')).fontColor(Color.White)
+              .enabled(!this.loading)
               .onClick(() => this.pickFile())
               .margin({ bottom: 16 })
 
@@ -169,20 +170,32 @@ struct ImportPage {
     this.loading = false;
   }
 
+  private saving: boolean = false;  // 防重入
+
   private async saveBank(): Promise<void> {
     if (!this.result || this.result.questions.length === 0) return;
+    if (this.saving) return;  // 防止快速双击重复导入
+    this.saving = true;
     this.loading = true;
     this.loadingMsg = `正在导入 ${this.result.successCount} 道题...`;
+    const db = DatabaseService.getInstance();
+    let bankId: number | null = null;
     try {
-      const db = DatabaseService.getInstance();
-      const bankId = await db.banks.insert(this.editName, '', this.result.filePath);
+      bankId = await db.banks.insert(this.editName, '', this.result.filePath);
       await db.questions.batchInsert(bankId, this.result.questions);
       await db.banks.refreshCount(bankId);
       this.loading = false;
       router.back();
     } catch (e) {
       console.error('保存失败', e);
+      // 失败回滚：删除已创建的孤儿题库，避免半成品残留导致重复导入
+      if (bankId !== null) {
+        try { await db.banks.delete(bankId); } catch {}
+      }
       this.loading = false;
+      promptAction.showToast({ message: '保存失败：' + ((e as Error).message || '请重试') });
+    } finally {
+      this.saving = false;
     }
   }
 }

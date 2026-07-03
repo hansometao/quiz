@@ -27,25 +27,44 @@ export function parseXml(xml: string): XmlNode {
   let i = 0;
   while (i < src.length) {
     if (src[i] === '<') {
-      // 找到标签结束
-      const end = src.indexOf('>', i);
+      // CDATA 段：必须用 ]]> 定位结束，避免内部 > 截断
+      if (src.startsWith('<![CDATA[', i)) {
+        const end = src.indexOf(']]>', i + 9);
+        if (end === -1) break;
+        const content = src.slice(i + 9, end);
+        const current = stack[stack.length - 1];
+        if (current) current.text += content;
+        i = end + 3;
+        continue;
+      }
+      // 注释：用 --> 定位结束，避免内部 > 截断
+      if (src.startsWith('<!--', i)) {
+        const end = src.indexOf('-->', i + 4);
+        i = end === -1 ? src.length : end + 3;
+        continue;
+      }
+      // 普通标签：扫描时跳过属性值内的 >，避免 <c r="A>B"> 被截断
+      let end = -1;
+      let inQuote: string | null = null;
+      for (let j = i + 1; j < src.length; j++) {
+        const ch = src[j];
+        if (inQuote) {
+          if (ch === inQuote) inQuote = null;
+        } else if (ch === '"' || ch === "'") {
+          inQuote = ch;
+        } else if (ch === '>') {
+          end = j;
+          break;
+        }
+      }
       if (end === -1) break;
       const tag = src.slice(i + 1, end).trim();
       i = end + 1;
 
-      if (tag.startsWith('?')) continue; // 跳过 XML 声明/PI（如 <?xml ...?>）
-      if (tag.startsWith('!')) {
-        // 处理 CDATA: <![CDATA[内容]]>
-        const cdataMatch = tag.match(/^!\[CDATA\[([\s\S]*?)\]\]$/);
-        if (cdataMatch) {
-          const current = stack[stack.length - 1];
-          current.text += cdataMatch[1];
-        }
-        continue; // 跳过普通注释 <!--...-->
-      }
+      if (tag.startsWith('?')) continue; // 跳过 XML 声明/PI
       if (tag.startsWith('/')) {
-        // 闭合标签
-        stack.pop();
+        // 闭合标签：仅当栈非空时弹出，避免多余闭合标签导致栈错乱
+        if (stack.length > 1) stack.pop();
         continue;
       }
 
@@ -54,7 +73,7 @@ export function parseXml(xml: string): XmlNode {
       const node = parseTagContent(tagContent);
 
       const current = stack[stack.length - 1];
-      current.children.push(node);
+      if (current) current.children.push(node);
       if (!selfClose) {
         stack.push(node);
       }
@@ -65,7 +84,7 @@ export function parseXml(xml: string): XmlNode {
       const decoded = decodeXmlEntities(text.trim());
       if (decoded) {
         const current = stack[stack.length - 1];
-        current.text += decoded;
+        if (current) current.text += decoded;
       }
       i = end === -1 ? src.length : end;
     }
@@ -80,24 +99,32 @@ function parseTagContent(tagContent: string): XmlNode {
   const attrStr = spaceIdx === -1 ? '' : tagContent.slice(spaceIdx + 1);
   const attrs: Record<string, string> = {};
 
-  // 解析属性 key="value"
-  const attrRe = /(\w+)\s*=\s*"([^"]*)"/g;
+  // 解析属性 key="value" 或 key='value'，支持带命名空间前缀的属性名
+  const attrRe = /([\w:]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
   let m: RegExpExecArray | null;
   while ((m = attrRe.exec(attrStr)) !== null) {
-    attrs[m[1]] = decodeXmlEntities(m[2]);
+    const key = m[1].replace(/^\w+:/, ''); // 去属性命名空间前缀
+    attrs[key] = decodeXmlEntities(m[2] ?? m[3] ?? '');
   }
 
   return { tag, attrs, text: '', children: [] };
 }
 
+/** 一次性解码 XML 实体，避免顺序替换导致 &amp;lt; 被错解为 < */
 function decodeXmlEntities(s: string): string {
-  return s
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
+  const NAMED: Record<string, string> = {
+    amp: '&', lt: '<', gt: '>', quot: '"', apos: "'",
+  };
+  return s.replace(/&(amp|lt|gt|quot|apos|#x[0-9a-fA-F]+|#\d+);/g, (whole, body: string) => {
+    if (body[0] === '#') {
+      const code = body[1] === 'x' || body[1] === 'X'
+        ? parseInt(body.slice(2), 16)
+        : parseInt(body.slice(1), 10);
+      if (!isNaN(code) && code >= 0) return String.fromCodePoint(code);
+      return whole;
+    }
+    return NAMED[body] ?? whole;
+  });
 }
 
 /** 递归查找第一个匹配 tag 的节点 */
