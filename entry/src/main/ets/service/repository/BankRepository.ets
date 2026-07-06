@@ -18,24 +18,30 @@ export class BankRepository {
     return await this.store.insert('question_banks', values);
   }
 
-  /** 查询所有题库（含统计） */
+  /** 查询所有题库（含统计）。COALESCE 兜底无会话题库的 AVG/MAX 返回 NULL，
+   *  使用加权正确率替代 AVG(每会话正确率) */
   async getAll(): Promise<QuestionBank[]> {
     const sql = `
       SELECT b.*,
              COUNT(DISTINCT s.id)                                   AS practice_count,
-             AVG(CASE WHEN s.total_count > 0
-                      THEN CAST(s.correct_count AS REAL) / s.total_count END) AS avg_correct_rate,
-             MAX(s.started_at)                                      AS last_practice_at
+             COALESCE(
+               SUM(CASE WHEN s.total_count > 0 THEN s.correct_count END) * 1.0
+                 / NULLIF(SUM(s.total_count), 0),
+             0)                                                     AS avg_correct_rate,
+             COALESCE(MAX(s.started_at), 0)                         AS last_practice_at
       FROM question_banks b
       LEFT JOIN practice_sessions s ON s.bank_id = b.id AND s.status = 'completed'
       GROUP BY b.id
       ORDER BY b.updated_at DESC`;
     const result = await this.store.querySql(sql);
     const banks: QuestionBank[] = [];
-    while (result.goToNextRow()) {
-      banks.push(this.rowToBank(result));
+    try {
+      while (result.goToNextRow()) {
+        banks.push(this.rowToBank(result));
+      }
+    } finally {
+      result.close();
     }
-    result.close();
     return banks;
   }
 
@@ -43,12 +49,13 @@ export class BankRepository {
     const predicates = new relationalStore.RdbPredicates('question_banks');
     predicates.equalTo('id', id);
     const result = await this.store.query(predicates);
-    if (result.goToFirstRow()) {
-      const bank = this.rowToBank(result);
+    try {
+      if (result.goToFirstRow()) {
+        return this.rowToBank(result);
+      }
+    } finally {
       result.close();
-      return bank;
     }
-    result.close();
     return null;
   }
 

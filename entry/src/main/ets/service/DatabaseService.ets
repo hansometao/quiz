@@ -101,6 +101,7 @@ const CREATE_SQL = `
   CREATE INDEX IF NOT EXISTS idx_answer_question ON answer_records(question_id);
   CREATE INDEX IF NOT EXISTS idx_session_bank ON practice_sessions(bank_id);
   CREATE INDEX IF NOT EXISTS idx_session_finished ON practice_sessions(finished_at);
+  CREATE INDEX IF NOT EXISTS idx_session_status_finished ON practice_sessions(status, finished_at);
   CREATE INDEX IF NOT EXISTS idx_mistakes_bank ON mistakes(bank_id);
   CREATE INDEX IF NOT EXISTS idx_mistakes_updated ON mistakes(updated_at);
 `;
@@ -139,8 +140,11 @@ export class DatabaseService {
 
   /** 初始化数据库与仓库（幂等，并发安全） */
   init(context: common.Context): Promise<void> {
-    if (this.store) return Promise.resolve();
+    // 必须先判 initPromise：doInit 内部 await getRdbStore 完成时会先赋值 this.store，
+    // 但仓库实例尚未创建。若另一调用此时进来，仅凭 this.store 判断会绕过 initPromise
+    // 直接返回，导致调用方拿到未初始化的 db.banks（undefined）。
     if (this.initPromise) return this.initPromise;
+    if (this.store) return Promise.resolve();
     this.initPromise = this.doInit(context);
     return this.initPromise;
   }
@@ -151,20 +155,23 @@ export class DatabaseService {
         name: DB_NAME,
         securityLevel: relationalStore.SecurityLevel.S1,
       };
-      this.store = await relationalStore.getRdbStore(context, config);
+      const store = await relationalStore.getRdbStore(context, config);
       // 开启外键约束：SQLite 默认不启用，未开启则所有 ON DELETE CASCADE 失效
-      await this.store.executeSql('PRAGMA foreign_keys = ON;');
+      await store.executeSql('PRAGMA foreign_keys = ON;');
       // 逐条执行 DDL，规避多语句 executeSql 的可移植性风险
       for (const sql of DDL_STATEMENTS) {
-        await this.store.executeSql(sql);
+        await store.executeSql(sql);
       }
+      // 先加载阈值（不依赖 store 字段），再实例化仓库，最后才把 store 暴露给外部，
+      // 确保一旦 this.store 非 null，所有仓库也必然就绪
       await this.loadThreshold(context);
-      this.banks    = new BankRepository(this.store);
-      this.questions = new QuestionRepository(this.store);
-      this.sessions = new SessionRepository(this.store);
-      this.stats    = new StatsRepository(this.store);
-      this.mistakes = new MistakeRepository(this.store);
-      this.backup   = new BackupRepository(this.store);
+      this.banks    = new BankRepository(store);
+      this.questions = new QuestionRepository(store);
+      this.sessions = new SessionRepository(store);
+      this.stats    = new StatsRepository(store);
+      this.mistakes = new MistakeRepository(store);
+      this.backup   = new BackupRepository(store);
+      this.store = store;
       hilog.info(0x0000, TAG, 'database initialized');
     } catch (err) {
       // 初始化失败：重置状态，允许后续重试
@@ -185,16 +192,20 @@ export class DatabaseService {
     }
   }
 
-  /** 同步错题阈值（设置页调用） */
+  /** 同步错题阈值（设置页调用）。先持久化再更新内存，避免持久化失败时内存与磁盘分叉 */
   async syncAutoRemoveThreshold(threshold: number): Promise<void> {
-    this._autoRemoveThreshold = threshold;
+    // 强制约束：阈值必须为 ≥1 的整数。0 会导致 onCorrectAnswer 中
+    // consecutive_correct >= 0 恒真，任意一次答对即清空错题本
+    const v = Math.max(1, Math.floor(Number(threshold) || DEFAULT_THRESHOLD));
     if (this.prefStore) {
-      await this.prefStore.put(KEY_AUTO_REMOVE_THRESHOLD, threshold);
+      await this.prefStore.put(KEY_AUTO_REMOVE_THRESHOLD, v);
       await this.prefStore.flush();
     }
+    this._autoRemoveThreshold = v;
   }
 
-  /** 关闭数据库 */
+  /** 关闭数据库。需重置 initPromise，否则下次 init() 会拿到已 resolved 的旧 Promise
+   * 而绕过 doInit，导致使用已关闭的 store 抛错 */
   async close(): Promise<void> {
     if (this.store) {
       try {
@@ -204,5 +215,6 @@ export class DatabaseService {
       }
       this.store = null;
     }
+    this.initPromise = null;
   }
 }

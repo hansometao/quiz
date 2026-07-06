@@ -22,10 +22,11 @@ export class QuizEngine {
         // SEQUENTIAL/RANDOM/EXAM/CATEGORY/DIFFICULTY 均从题库取题；
         // CATEGORY 与 DIFFICULTY 模式靠 config.categories / config.difficulties 筛选，
         // 由 PracticeConfigPage 根据所选模式暴露对应筛选 UI。
+        // 数组字段为可选（容错旧版备份），用 ?.length ?? 0 防止 undefined.length 崩溃
         questions = await this.db.questions.getByBank(bankId, {
-          types:        config.types.length        > 0 ? config.types        : undefined,
-          categories:   config.categories.length   > 0 ? config.categories   : undefined,
-          difficulties: config.difficulties.length > 0 ? config.difficulties : undefined,
+          types:        (config.types?.length        ?? 0) > 0 ? config.types        : undefined,
+          categories:   (config.categories?.length   ?? 0) > 0 ? config.categories   : undefined,
+          difficulties: (config.difficulties?.length ?? 0) > 0 ? config.difficulties : undefined,
         });
     }
 

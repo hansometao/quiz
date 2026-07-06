@@ -3,7 +3,7 @@
  * 练习会话（practice_sessions）与答题记录（answer_records）数据访问层
  */
 import relationalStore from '@ohos.data.relationalStore';
-import { PracticeSession, AnswerRecord, PracticeMode, SessionStatus, PracticeConfig } from '../../model/Models';
+import { PracticeSession, AnswerRecord, PracticeMode, SessionStatus, PracticeConfig, normalizePracticeConfig } from '../../model/Models';
 import { QuestionRepository } from './QuestionRepository';
 
 export class SessionRepository {
@@ -66,10 +66,13 @@ export class SessionRepository {
     args.push(limit);
     const result = await this.store.querySql(sql, args);
     const sessions: PracticeSession[] = [];
-    while (result.goToNextRow()) {
-      sessions.push(this.rowToSession(result));
+    try {
+      while (result.goToNextRow()) {
+        sessions.push(this.rowToSession(result));
+      }
+    } finally {
+      result.close();
     }
-    result.close();
     return sessions;
   }
 
@@ -77,12 +80,13 @@ export class SessionRepository {
     const sql = `SELECT s.*, b.name AS bank_name FROM practice_sessions s
                  LEFT JOIN question_banks b ON b.id = s.bank_id WHERE s.id = ?`;
     const result = await this.store.querySql(sql, [id]);
-    if (result.goToFirstRow()) {
-      const s = this.rowToSession(result);
+    try {
+      if (result.goToFirstRow()) {
+        return this.rowToSession(result);
+      }
+    } finally {
       result.close();
-      return s;
     }
-    result.close();
     return null;
   }
 
@@ -91,10 +95,13 @@ export class SessionRepository {
     const sql = `SELECT * FROM practice_sessions`;
     const result = await this.store.querySql(sql);
     const sessions: PracticeSession[] = [];
-    while (result.goToNextRow()) {
-      sessions.push(this.rowToSession(result));
+    try {
+      while (result.goToNextRow()) {
+        sessions.push(this.rowToSession(result));
+      }
+    } finally {
+      result.close();
     }
-    result.close();
     return sessions;
   }
 
@@ -181,12 +188,20 @@ export class SessionRepository {
 
   private rowToSession(result: relationalStore.ResultSet): PracticeSession {
     const cfgJson = result.getString(result.getColumnIndex('config_json'));
+    let cfg: PracticeConfig | undefined;
+    if (cfgJson) {
+      try {
+        cfg = normalizePracticeConfig(JSON.parse(cfgJson) as Partial<PracticeConfig>);
+      } catch {
+        cfg = undefined;
+      }
+    }
     return {
       id:            result.getLong(result.getColumnIndex('id')),
       bankId:        result.getLong(result.getColumnIndex('bank_id')),
       mode:          result.getString(result.getColumnIndex('mode')) as PracticeMode,
       configJson:    cfgJson,
-      config:        cfgJson ? JSON.parse(cfgJson) as PracticeConfig : undefined,
+      config:        cfg,
       totalCount:    result.getLong(result.getColumnIndex('total_count')),
       correctCount:  result.getLong(result.getColumnIndex('correct_count')),
       durationSec:   result.getLong(result.getColumnIndex('duration_sec')),

@@ -9,10 +9,17 @@ import { DateUtils } from '../utils/DateUtils';
 export struct HistoryPage {
   @State sessions: PracticeSession[] = [];
   @State loading: boolean = false;
+  // 代际 token：避免快速切换 tab 时旧请求覆盖新数据
+  private loadGen: number = 0;
+  private isAlive: boolean = true;
   @StorageProp('tabTick') @Watch('onTabTick') private tabTick: number = 0;
   @StorageProp('activeTab') private activeTab: number = 0;
 
   aboutToAppear() { this.loadHistory(); }
+
+  aboutToDisappear() {
+    this.isAlive = false;
+  }
 
   // Index 切换/回显时通过 AppStorage 通知刷新（@Component 子组件不接收 onPageShow）
   private onTabTick(): void {
@@ -22,9 +29,20 @@ export struct HistoryPage {
   }
 
   async loadHistory() {
+    const gen = ++this.loadGen;
     this.loading = true;
-    this.sessions = await DatabaseService.getInstance().sessions.getCompleted(100);
-    this.loading = false;
+    try {
+      const sessions = await DatabaseService.getInstance().sessions.getCompleted(100);
+      if (!this.isAlive || gen !== this.loadGen) return;
+      this.sessions = sessions;
+    } catch (e) {
+      if (!this.isAlive || gen !== this.loadGen) return;
+      console.error('HistoryPage loadHistory 失败', e);
+    } finally {
+      if (this.isAlive && gen === this.loadGen) {
+        this.loading = false;
+      }
+    }
   }
 
   build() {
@@ -93,7 +111,7 @@ export struct HistoryPage {
                   });
                 })
               }
-            })
+            }, (s: PracticeSession) => s.id.toString())
           }
           .layoutWeight(1).padding({ left: 16, right: 16, bottom: 16 })
         }

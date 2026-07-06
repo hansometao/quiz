@@ -8,11 +8,18 @@ import { EmptyState, LoadingOverlay } from '../components/CommonComponents';
 export struct MistakePage {
   @State mistakes: MistakeItem[] = [];
   @State loading: boolean = false;
-  private threshold: number = 3;
+  @State threshold: number = 3;
+  // 代际 token：避免快速切换 tab 时旧请求覆盖新数据
+  private loadGen: number = 0;
+  private isAlive: boolean = true;
   @StorageProp('tabTick') @Watch('onTabTick') private tabTick: number = 0;
   @StorageProp('activeTab') private activeTab: number = 0;
 
   aboutToAppear() { this.loadMistakes(); }
+
+  aboutToDisappear() {
+    this.isAlive = false;
+  }
 
   // Index 切换/回显时通过 AppStorage 通知刷新（@Component 子组件不接收 onPageShow）
   private onTabTick(): void {
@@ -22,10 +29,21 @@ export struct MistakePage {
   }
 
   async loadMistakes() {
+    const gen = ++this.loadGen;
     this.loading = true;
-    this.threshold = DatabaseService.getInstance().autoRemoveThreshold;
-    this.mistakes = await DatabaseService.getInstance().mistakes.getWithQuestions();
-    this.loading = false;
+    try {
+      this.threshold = DatabaseService.getInstance().autoRemoveThreshold;
+      const mistakes = await DatabaseService.getInstance().mistakes.getWithQuestions();
+      if (!this.isAlive || gen !== this.loadGen) return;
+      this.mistakes = mistakes;
+    } catch (e) {
+      if (!this.isAlive || gen !== this.loadGen) return;
+      console.error('MistakePage loadMistakes 失败', e);
+    } finally {
+      if (this.isAlive && gen === this.loadGen) {
+        this.loading = false;
+      }
+    }
   }
 
   build() {
@@ -96,12 +114,12 @@ export struct MistakePage {
                   }
                   .margin({ top: 8 })
 
-                  // 连续正确进度条
+                  // 连续正确进度条（threshold 至少为 1，避免 total:0 触发除零异常）
                   if (m.consecutiveCorrect > 0) {
                     Row() {
                       Text('连续正确：' + m.consecutiveCorrect + '/' + this.threshold)
                         .fontSize(11).fontColor($r('app.color.text_secondary'))
-                      Progress({ value: m.consecutiveCorrect, total: this.threshold })
+                      Progress({ value: m.consecutiveCorrect, total: Math.max(this.threshold, 1) })
                         .width(60).height(4)
                         .color($r('app.color.success')).backgroundColor($r('app.color.border'))
                         .margin({ left: 8 })
@@ -112,7 +130,7 @@ export struct MistakePage {
                 .padding(14).backgroundColor($r('app.color.bg_card')).borderRadius(12)
                 .border({ width: 1, color: $r('app.color.border') })
               }
-            })
+            }, (m: MistakeItem) => m.questionId.toString())
           }
           .layoutWeight(1).padding({ left: 16, right: 16, bottom: 16 })
         }

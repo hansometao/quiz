@@ -30,21 +30,28 @@ export class MistakeRepository {
     );
   }
 
-  /** 答对时 consecutive_correct+1，达到阈值自动删除 */
+  /** 答对时 consecutive_correct+1，达到阈值自动删除（事务保证两步原子） */
   async onCorrectAnswer(questionId: number, threshold: number): Promise<void> {
     const now = Math.floor(Date.now() / 1000);
-    await this.store.executeSql(
-      `UPDATE mistakes
-         SET consecutive_correct = consecutive_correct + 1,
-             last_practice_time = ?,
-             updated_at = ?
-       WHERE question_id = ?`,
-      [now, now, questionId]
-    );
-    await this.store.executeSql(
-      `DELETE FROM mistakes WHERE question_id = ? AND consecutive_correct >= ?`,
-      [questionId, threshold]
-    );
+    await this.store.beginTransaction();
+    try {
+      await this.store.executeSql(
+        `UPDATE mistakes
+           SET consecutive_correct = consecutive_correct + 1,
+               last_practice_time = ?,
+               updated_at = ?
+         WHERE question_id = ?`,
+        [now, now, questionId]
+      );
+      await this.store.executeSql(
+        `DELETE FROM mistakes WHERE question_id = ? AND consecutive_correct >= ?`,
+        [questionId, threshold]
+      );
+      await this.store.commit();
+    } catch (err) {
+      await this.store.rollBack();
+      throw err;
+    }
   }
 
   async remove(questionId: number): Promise<void> {
@@ -55,8 +62,10 @@ export class MistakeRepository {
 
   /** 查询错题本（JOIN 题目） */
   async getWithQuestions(bankId?: number): Promise<MistakeItem[]> {
+    // m.* 已含 m.bank_id；q 的字段用别名避免与 m.* 同名冲突（mistakes 表无 id 列，
+    // rowToQuestion 读 'id' 会拿到 -1，因此必须显式选出 q.id AS q_id 并回填）
     let sql = `
-      SELECT m.*, q.bank_id, q.seq_no, q.type, q.question, q.option_a, q.option_b,
+      SELECT m.*, q.id AS q_id, q.bank_id AS q_bank_id, q.seq_no, q.type, q.question, q.option_a, q.option_b,
              q.option_c, q.option_d, q.option_e, q.answer, q.explanation, q.category,
              q.difficulty, q.score, q.is_starred, q.is_flagged, q.user_note, q.created_at,
              qs.attempt_count, qs.correct_count, qs.last_answered
@@ -72,20 +81,29 @@ export class MistakeRepository {
     const result = await this.store.querySql(sql, args);
     const items: MistakeItem[] = [];
     const qRepo = new QuestionRepository(this.store);
-    while (result.goToNextRow()) {
-      const q = qRepo.rowToQuestion(result);
-      items.push({
-        questionId:          result.getLong(result.getColumnIndex('question_id')),
-        bankId:              result.getLong(result.getColumnIndex('bank_id')),
-        wrongCount:          result.getLong(result.getColumnIndex('wrong_count')),
-        consecutiveCorrect:  result.getLong(result.getColumnIndex('consecutive_correct')),
-        myLastAnswer:        result.getString(result.getColumnIndex('my_last_answer')),
-        lastPracticeTime:    result.getLong(result.getColumnIndex('last_practice_time')),
-        addedAt:             result.getLong(result.getColumnIndex('added_at')),
-        question:            q,
-      });
+    try {
+      while (result.goToNextRow()) {
+        const q = qRepo.rowToQuestion(result);
+        // 别名 q_id / q_bank_id 覆盖 rowToQuestion 中 getColumnIndex('id'/'bank_id')
+        // 命中 mistakes 表不存在列而得到的 0，避免 question.id 恒为 0 污染下游
+        const qIdIdx = result.getColumnIndex('q_id');
+        if (qIdIdx >= 0) q.id = result.getLong(qIdIdx);
+        const qBankIdx = result.getColumnIndex('q_bank_id');
+        if (qBankIdx >= 0) q.bankId = result.getLong(qBankIdx);
+        items.push({
+          questionId:          result.getLong(result.getColumnIndex('question_id')),
+          bankId:              result.getLong(result.getColumnIndex('bank_id')),
+          wrongCount:          result.getLong(result.getColumnIndex('wrong_count')),
+          consecutiveCorrect:  result.getLong(result.getColumnIndex('consecutive_correct')),
+          myLastAnswer:        result.getString(result.getColumnIndex('my_last_answer')),
+          lastPracticeTime:    result.getLong(result.getColumnIndex('last_practice_time')),
+          addedAt:             result.getLong(result.getColumnIndex('added_at')),
+          question:            q,
+        });
+      }
+    } finally {
+      result.close();
     }
-    result.close();
     return items;
   }
 
@@ -94,18 +112,21 @@ export class MistakeRepository {
     const sql = `SELECT * FROM mistakes`;
     const result = await this.store.querySql(sql);
     const items: MistakeItem[] = [];
-    while (result.goToNextRow()) {
-      items.push({
-        questionId:          result.getLong(result.getColumnIndex('question_id')),
-        bankId:              result.getLong(result.getColumnIndex('bank_id')),
-        wrongCount:          result.getLong(result.getColumnIndex('wrong_count')),
-        consecutiveCorrect:  result.getLong(result.getColumnIndex('consecutive_correct')),
-        myLastAnswer:        result.getString(result.getColumnIndex('my_last_answer')),
-        lastPracticeTime:    result.getLong(result.getColumnIndex('last_practice_time')),
-        addedAt:             result.getLong(result.getColumnIndex('added_at')),
-      });
+    try {
+      while (result.goToNextRow()) {
+        items.push({
+          questionId:          result.getLong(result.getColumnIndex('question_id')),
+          bankId:              result.getLong(result.getColumnIndex('bank_id')),
+          wrongCount:          result.getLong(result.getColumnIndex('wrong_count')),
+          consecutiveCorrect:  result.getLong(result.getColumnIndex('consecutive_correct')),
+          myLastAnswer:        result.getString(result.getColumnIndex('my_last_answer')),
+          lastPracticeTime:    result.getLong(result.getColumnIndex('last_practice_time')),
+          addedAt:             result.getLong(result.getColumnIndex('added_at')),
+        });
+      }
+    } finally {
+      result.close();
     }
-    result.close();
     return items;
   }
 }

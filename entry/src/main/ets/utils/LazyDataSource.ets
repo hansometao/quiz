@@ -39,6 +39,8 @@ export class ArrayDataSource<T extends Object> implements IDataSource {
   }
 
   getData(index: number): T {
+    // 越界保护：ArkUI 框架仅以 [0, totalCount) 范围调用，但防御性返回 undefined 避免极端情况下取到 undefined 后下游崩溃
+    if (index < 0 || index >= this.data.length) return undefined as T;
     return this.data[index];
   }
 
@@ -87,21 +89,36 @@ export class ArrayDataSource<T extends Object> implements IDataSource {
     this.notifyReloaded();
   }
 
-  /** 获取底层数组（只读） */
+  /** 获取底层数组的浅拷贝（防止外部直接修改内部数组） */
   getAll(): T[] {
-    return this.data;
+    return [...this.data];
   }
 
   private notifyReloaded(): void {
-    this.listeners.forEach(l => l.onDataReloaded());
+    this.safeNotify(l => l.onDataReloaded());
   }
   private notifyAdded(index: number): void {
-    this.listeners.forEach(l => l.onDataAdded(index));
+    this.safeNotify(l => l.onDataAdded(index));
   }
   private notifyDeleted(index: number): void {
-    this.listeners.forEach(l => l.onDataDeleted(index));
+    this.safeNotify(l => l.onDataDeleted(index));
   }
   private notifyChanged(index: number): void {
-    this.listeners.forEach(l => l.onDataChanged(index));
+    this.safeNotify(l => l.onDataChanged(index));
+  }
+
+  /**
+   * 通知监听器：先快照 listeners 数组（通知过程中可能被 unregister），再 try/catch 隔离每个监听器，
+   * 单个监听器抛错不会中断其他监听器，也不会影响数据源自身状态
+   */
+  private safeNotify(fn: (l: DataChangeListener) => void): void {
+    const snapshot = [...this.listeners];
+    for (const l of snapshot) {
+      try {
+        fn(l);
+      } catch (e) {
+        console.error('LazyDataSource listener 通知失败', e);
+      }
+    }
   }
 }

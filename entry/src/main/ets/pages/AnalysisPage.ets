@@ -1,16 +1,13 @@
 import { DatabaseService } from '../service/DatabaseService';
 import { DateUtils } from '../utils/DateUtils';
 import { LoadingOverlay } from '../components/CommonComponents';
-
-interface DayStat { date: string; count: number; correctRate: number; }
-interface CatStat { category: string; attempts: number; correctRate: number; }
-interface Overall { totalSessions: number; totalQuestions: number; avgCorrectRate: number; totalTimeSec: number; }
+import { OverallStat, DailyStat, CategoryStat } from '../service/repository/StatsRepository';
 
 @Component
 export struct AnalysisPage {
-  @State daily: DayStat[] = [];
-  @State categories: CatStat[] = [];
-  @State overall: Overall = { totalSessions: 0, totalQuestions: 0, avgCorrectRate: 0, totalTimeSec: 0 };
+  @State daily: DailyStat[] = [];
+  @State categories: CategoryStat[] = [];
+  @State overall: OverallStat = { totalSessions: 0, totalQuestions: 0, avgCorrectRate: 0, totalDurationSec: 0 };
   @State loading: boolean = false;
   @State selectedDays: number = 14;
   @State lineCanvasWidth: number = 320;   // 折线图实际宽度（响应式）
@@ -20,10 +17,17 @@ export struct AnalysisPage {
   private barCtx:  CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
   private isLineChartDrawn: boolean = false;
   private isBarChartDrawn: boolean = false;
+  // 代际 token：避免快速切换 7/14/30 天时旧请求覆盖新数据
+  private loadGen: number = 0;
+  private isAlive: boolean = true;
   @StorageProp('tabTick') @Watch('onTabTick') private tabTick: number = 0;
   @StorageProp('activeTab') private activeTab: number = 0;
 
   aboutToAppear() { this.loadStats(); }
+
+  aboutToDisappear() {
+    this.isAlive = false;
+  }
 
   // Index 切换/回显时通过 AppStorage 通知刷新（@Component 子组件不接收 onPageShow）
   private onTabTick(): void {
@@ -33,16 +37,33 @@ export struct AnalysisPage {
   }
 
   async loadStats() {
+    const gen = ++this.loadGen;
     this.loading = true;
     const db = DatabaseService.getInstance();
-    this.overall    = await db.stats.getOverall();
-    this.daily      = await db.stats.getDailyStats(this.selectedDays);
-    this.categories = await db.stats.getCategoryStats();
-    this.loading = false;
-    this.isLineChartDrawn = false;
-    this.isBarChartDrawn = false;
-    this.drawLineChart();
-    this.drawBarChart();
+    try {
+      // 三个查询互不依赖，并行化缩短加载时间
+      const [overall, daily, categories] = await Promise.all([
+        db.stats.getOverall(),
+        db.stats.getDailyStats(this.selectedDays),
+        db.stats.getCategoryStats(),
+      ]);
+      // 切走页面或发起新请求后，丢弃过期结果
+      if (!this.isAlive || gen !== this.loadGen) return;
+      this.overall    = overall;
+      this.daily      = daily;
+      this.categories = categories;
+    } catch (e) {
+      if (!this.isAlive || gen !== this.loadGen) return;
+      console.error('AnalysisPage loadStats 失败', e);
+    } finally {
+      if (this.isAlive && gen === this.loadGen) {
+        this.loading = false;
+        this.isLineChartDrawn = false;
+        this.isBarChartDrawn = false;
+        this.drawLineChart();
+        this.drawBarChart();
+      }
+    }
   }
 
   // ── 折线图（近 N 天正确率趋势） ──
@@ -160,7 +181,7 @@ export struct AnalysisPage {
               GridItem() { this.StatCard('练习次数', String(this.overall.totalSessions), '次', '#0A84FF') }
               GridItem() { this.StatCard('作答题目', String(this.overall.totalQuestions), '题', '#34C759') }
               GridItem() { this.StatCard('平均正确率', (isNaN(this.overall.avgCorrectRate) ? 0 : Math.round(this.overall.avgCorrectRate * 100)) + '', '%', '#FF9500') }
-              GridItem() { this.StatCard('总用时', DateUtils.formatDurationLabel(this.overall.totalTimeSec), '', '#AF52DE') }
+              GridItem() { this.StatCard('总用时', DateUtils.formatDurationLabel(this.overall.totalDurationSec), '', '#AF52DE') }
             }
             .columnsTemplate('1fr 1fr')
             .rowsGap(10).columnsGap(10)

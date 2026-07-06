@@ -15,7 +15,7 @@ struct ResultPage {
 
   get correctCount():  number { return this.records.filter(r => r.isCorrect === AnswerStatus.CORRECT).length; }
   get wrongCount():    number { return this.records.filter(r => r.isCorrect === AnswerStatus.WRONG).length; }
-  get skippedCount():  number { return Math.max(0, this.totalCount - this.correctCount - this.wrongCount); }
+  get skippedCount():  number { return this.records.filter(r => r.isCorrect === AnswerStatus.SKIPPED).length; }
   get totalCount():    number { return this.session?.totalCount ?? this.records.length; }
   get correctRate():   number { return this.totalCount > 0 ? this.correctCount / this.totalCount : 0; }
   get wrongRecords():  AnswerRecord[] { return this.records.filter(r => r.isCorrect === AnswerStatus.WRONG); }
@@ -26,38 +26,42 @@ struct ResultPage {
 
   async loadData() {
     const db = DatabaseService.getInstance();
-    // 先并发请求，避免串行等待
-    const [sessions, records] = await Promise.all([
-      db.sessions.getCompleted(200),
-      db.sessions.getAnswersBySession(this.sessionId),
-    ]);
-    this.records = records;
-    // 从列表中查找对应 session
-    const found = sessions.find(s => s.id === this.sessionId);
-    if (found) {
-      this.session = found;
-    } else if (records.length > 0) {
-      // 兜底：session 刚完成还未持久化，用记录推算
-      const correct = records.filter(r => r.isCorrect === AnswerStatus.CORRECT).length;
-      const score = records.reduce((sum, r) => sum + (r.isCorrect === AnswerStatus.CORRECT ? (r.question?.score ?? 1) : 0), 0);
-      const times = records.map(r => r.answeredAt);
-      const first = Math.min(...times);
-      const last  = Math.max(...times);
-      this.session = {
-        id: this.sessionId,
-        bankId: 0,
-        mode: 'random' as PracticeMode,
-        configJson: '{}',
-        totalCount: records.length,
-        correctCount: correct,
-        durationSec: last - first,
-        totalScore: score,
-        status: 'completed' as SessionStatus,
-        startedAt: first,
-        finishedAt: last,
-      } as PracticeSession;
+    try {
+      // 直接按主键查 session，避免 getCompleted 全量查询再 find 的无谓开销
+      const [session, records] = await Promise.all([
+        db.sessions.getById(this.sessionId),
+        db.sessions.getAnswersBySession(this.sessionId),
+      ]);
+      this.records = records;
+      if (session) {
+        this.session = session;
+      } else if (records.length > 0) {
+        // 兜底：session 记录缺失，根据答题记录推算
+        const correct = records.filter(r => r.isCorrect === AnswerStatus.CORRECT).length;
+        const score = records.reduce((sum, r) => sum + (r.isCorrect === AnswerStatus.CORRECT ? (r.question?.score ?? 1) : 0), 0);
+        const times = records.map(r => r.answeredAt);
+        // 用 reduce 替代 Math.min(...times)，避免大数组展开触发栈溢出
+        const first = times.reduce((a, b) => a < b ? a : b, times[0]);
+        const last  = times.reduce((a, b) => a > b ? a : b, times[0]);
+        this.session = {
+          id: this.sessionId,
+          bankId: 0,
+          mode: 'random' as PracticeMode,
+          configJson: '{}',
+          totalCount: records.length,
+          correctCount: correct,
+          durationSec: last - first,
+          totalScore: score,
+          status: 'completed' as SessionStatus,
+          startedAt: first,
+          finishedAt: last,
+        } as PracticeSession;
+      }
+    } catch (e) {
+      console.error('ResultPage loadData 失败', e);
+    } finally {
+      this.loading = false;
     }
-    this.loading = false;
   }
 
   build() {
@@ -142,7 +146,7 @@ struct ResultPage {
                 .borderRadius(10)
                 .border({ width: 1, color: '#FFE0E0' })
               }
-            })
+            }, (record: AnswerRecord) => record.id.toString())
           }
           .layoutWeight(1)
           .padding({ left: 16, right: 16, bottom: 16 })
@@ -165,8 +169,9 @@ struct ResultPage {
   private calcDuration(): number {
     if (!this.records || this.records.length === 0) return 0;
     const times = this.records.map(r => r.answeredAt);
-    const first = Math.min(...times);
-    const last  = Math.max(...times);
+    // 用 reduce 替代 Math.min(...times)，避免大数组展开触发栈溢出
+    const first = times.reduce((a, b) => a < b ? a : b, times[0]);
+    const last  = times.reduce((a, b) => a > b ? a : b, times[0]);
     return last - first;
   }
 }

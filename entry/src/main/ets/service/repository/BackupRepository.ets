@@ -6,7 +6,7 @@
  * 返回 { inserted, skipped } 供用户提示。
  */
 import relationalStore from '@ohos.data.relationalStore';
-import { QuestionBank, Question, PracticeSession, AnswerRecord, MistakeItem } from '../../model/Models';
+import { QuestionBank, Question, PracticeSession, AnswerRecord, MistakeItem, QuestionType, Difficulty, PracticeMode, SessionStatus } from '../../model/Models';
 
 export interface RestoreResult {
   inserted: number;
@@ -43,11 +43,13 @@ export class BackupRepository {
       for (const q of questions) {
         const values: relationalStore.ValuesBucket = {
           id: q.id, bank_id: q.bankId, seq_no: q.seqNo ?? 0,
-          type: q.type, question: q.question ?? '',
+          // type/difficulty 为 NOT NULL 列，undefined 会写入 NULL 而非触发 DEFAULT，
+          // 导致后续 WHERE difficulty IN (...) 筛选漏掉 NULL 行，必须显式兜底
+          type: q.type ?? QuestionType.SINGLE, question: q.question ?? '',
           option_a: q.optionA ?? '', option_b: q.optionB ?? '', option_c: q.optionC ?? '',
           option_d: q.optionD ?? '', option_e: q.optionE ?? '',
           answer: q.answer ?? '', explanation: q.explanation ?? '',
-          category: q.category ?? '', difficulty: q.difficulty,
+          category: q.category ?? '', difficulty: q.difficulty ?? Difficulty.MEDIUM,
           score: q.score ?? 1.0, is_starred: q.isStarred ? 1 : 0,
           is_flagged: q.isFlagged ? 1 : 0, user_note: q.userNote ?? '',
           created_at: q.createdAt ?? 0,
@@ -59,10 +61,10 @@ export class BackupRepository {
 
       for (const s of sessions) {
         const values: relationalStore.ValuesBucket = {
-          id: s.id, bank_id: s.bankId, mode: s.mode,
+          id: s.id, bank_id: s.bankId, mode: s.mode ?? PracticeMode.RANDOM,
           config_json: s.configJson ?? '', total_count: s.totalCount ?? 0,
           correct_count: s.correctCount ?? 0, duration_sec: s.durationSec ?? 0,
-          total_score: s.totalScore ?? 0, status: s.status,
+          total_score: s.totalScore ?? 0, status: s.status ?? SessionStatus.COMPLETED,
           started_at: s.startedAt ?? 0, finished_at: s.finishedAt ?? 0,
         };
         const rowId = await this.store.insertWithConflictResolution(
@@ -86,7 +88,10 @@ export class BackupRepository {
           question_id: m.questionId, bank_id: m.bankId,
           wrong_count: m.wrongCount ?? 1, consecutive_correct: m.consecutiveCorrect ?? 0,
           my_last_answer: m.myLastAnswer ?? '', last_practice_time: m.lastPracticeTime ?? 0,
-          added_at: m.addedAt ?? 0, updated_at: m.lastPracticeTime ?? 0,
+          added_at: m.addedAt ?? 0,
+          // updated_at 用于 ORDER BY m.updated_at DESC 排序，应取最近活动时间；
+          // 原实现误用 lastPracticeTime，导致从未练习过的错题排序失真
+          updated_at: m.lastPracticeTime ?? m.addedAt ?? 0,
         };
         const rowId = await this.store.insertWithConflictResolution(
           'mistakes', values, relationalStore.ConflictResolution.ON_CONFLICT_IGNORE);

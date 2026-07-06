@@ -42,8 +42,9 @@ struct HistoryDetailPage {
         const correctCnt = records.filter(r => r.isCorrect === AnswerStatus.CORRECT).length;
         // 时长用首末答题时间差（与 ResultPage.calcDuration 算法保持一致）
         const times = records.map(r => r.answeredAt);
-        const first = Math.min(...times);
-        const last  = Math.max(...times);
+        // 用 reduce 替代 Math.min(...times)，避免大数组展开触发栈溢出
+        const first = times.reduce((a, b) => a < b ? a : b, times[0]);
+        const last  = times.reduce((a, b) => a > b ? a : b, times[0]);
         this.session = {
           id:           this.sessionId,
           bankId:       0,

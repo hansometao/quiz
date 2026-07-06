@@ -43,6 +43,30 @@ export function parseXml(xml: string): XmlNode {
         i = end === -1 ? src.length : end + 3;
         continue;
       }
+      // DOCTYPE 声明：可能包含内部子集 [ ... ]，需匹配对应 > 结束，
+      // 简单处理：扫描时同样跳过引号内的 >，避免被内部子集截断
+      if (src.startsWith('<!DOCTYPE', i) || src.startsWith('<!doctype', i)) {
+        let end = -1;
+        let inQuote: string | null = null;
+        let inBracket = 0;
+        for (let j = i + 9; j < src.length; j++) {
+          const ch = src[j];
+          if (inQuote) {
+            if (ch === inQuote) inQuote = null;
+          } else if (ch === '"' || ch === "'") {
+            inQuote = ch;
+          } else if (ch === '[') {
+            inBracket++;
+          } else if (ch === ']') {
+            if (inBracket > 0) inBracket--;
+          } else if (ch === '>' && inBracket === 0) {
+            end = j;
+            break;
+          }
+        }
+        i = end === -1 ? src.length : end + 1;
+        continue;
+      }
       // 普通标签：扫描时跳过属性值内的 >，避免 <c r="A>B"> 被截断
       let end = -1;
       let inQuote: string | null = null;
@@ -120,11 +144,23 @@ function decodeXmlEntities(s: string): string {
       const code = body[1] === 'x' || body[1] === 'X'
         ? parseInt(body.slice(2), 16)
         : parseInt(body.slice(1), 10);
-      if (!isNaN(code) && code >= 0) return String.fromCodePoint(code);
-      return whole;
+      // 码点范围校验：XML 1.0 合法码点为 0x9/0xA/0xD/0x20-0xD7FF/0xE000-0xFFFD/0x10000-0x10FFFF，
+      // 排除代理区 0xD800-0xD7FF 与 0xFFFE/0xFFFF，避免 fromCodePoint 抛 RangeError 或产出非法字符
+      if (!isXmlCodePoint(code)) return whole;
+      return String.fromCodePoint(code);
     }
     return NAMED[body] ?? whole;
   });
+}
+
+/** 判断码点是否为 XML 1.0 合法字符 */
+function isXmlCodePoint(code: number): boolean {
+  if (!Number.isFinite(code) || code < 0) return false;
+  if (code === 0x9 || code === 0xA || code === 0xD) return true;
+  if (code >= 0x20 && code <= 0xD7FF) return true;
+  if (code >= 0xE000 && code <= 0xFFFD) return true;
+  if (code >= 0x10000 && code <= 0x10FFFF) return true;
+  return false;
 }
 
 /** 递归查找第一个匹配 tag 的节点 */
