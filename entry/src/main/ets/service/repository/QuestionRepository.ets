@@ -16,35 +16,34 @@ export interface QuestionQueryOptions {
 export class QuestionRepository {
   constructor(private store: relationalStore.RdbStore) {}
 
-  /** 批量插入题目（事务 + batchInsert 提升性能） */
+  /** 批量插入题目（事务 + batchInsert 一次往返插入多行，提升性能） */
   async batchInsert(bankId: number, questions: Partial<Question>[]): Promise<void> {
     if (questions.length === 0) return;
     const now = Math.floor(Date.now() / 1000);
+    // 预构造全部 ValuesBucket，再调用 batchInsert 一次写入
+    const buckets: relationalStore.ValuesBucket[] = questions.map(q => ({
+      bank_id:     bankId,
+      seq_no:      q.seqNo ?? 0,
+      type:        q.type ?? QuestionType.SINGLE,
+      question:    q.question ?? '',
+      option_a:    q.optionA ?? '',
+      option_b:    q.optionB ?? '',
+      option_c:    q.optionC ?? '',
+      option_d:    q.optionD ?? '',
+      option_e:    q.optionE ?? '',
+      answer:      q.answer ?? '',
+      explanation: q.explanation ?? '',
+      category:    q.category ?? '',
+      difficulty:  q.difficulty ?? Difficulty.MEDIUM,
+      score:       q.score ?? 1.0,
+      is_starred:  0,
+      is_flagged:  0,
+      user_note:   '',
+      created_at:  now,
+    }));
     await this.store.beginTransaction();
     try {
-      for (const q of questions) {
-        const values: relationalStore.ValuesBucket = {
-          bank_id:     bankId,
-          seq_no:      q.seqNo ?? 0,
-          type:        q.type ?? QuestionType.SINGLE,
-          question:    q.question ?? '',
-          option_a:    q.optionA ?? '',
-          option_b:    q.optionB ?? '',
-          option_c:    q.optionC ?? '',
-          option_d:    q.optionD ?? '',
-          option_e:    q.optionE ?? '',
-          answer:      q.answer ?? '',
-          explanation: q.explanation ?? '',
-          category:    q.category ?? '',
-          difficulty:  q.difficulty ?? Difficulty.MEDIUM,
-          score:       q.score ?? 1.0,
-          is_starred:  0,
-          is_flagged:  0,
-          user_note:   '',
-          created_at:  now,
-        };
-        await this.store.insert('questions', values);
-      }
+      await this.store.batchInsert('questions', buckets);
       await this.store.commit();
     } catch (err) {
       await this.store.rollBack();

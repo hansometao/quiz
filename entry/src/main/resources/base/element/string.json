@@ -3,8 +3,6 @@
     { "name": "module_desc", "value": "题库练习应用" },
     { "name": "EntryAbility_desc", "value": "题库练习 - 离线本地" },
     { "name": "EntryAbility_label", "value": "题库练习" },
-    { "name": "permission_read_media", "value": "导入Excel题库文件需要读取存储权限" },
-    { "name": "permission_write_media", "value": "导出备份文件需要写入存储权限" },
     { "name": "app_name", "value": "题库练习" },
     { "name": "tab_banks", "value": "题库" },
     { "name": "tab_practice", "value": "练习" },

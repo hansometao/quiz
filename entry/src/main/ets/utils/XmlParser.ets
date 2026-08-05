@@ -10,18 +10,22 @@ export interface XmlNode {
   children: XmlNode[];
 }
 
+/** XML 节点数量上限，防止恶意/损坏 XML 耗尽内存 */
+const MAX_XML_NODES = 500000;
+
 /**
  * 解析 XML 字符串为节点树
  */
 export function parseXml(xml: string): XmlNode {
-  // 去掉 XML 声明和命名空间前缀
+  // 去掉 XML 声明和命名空间前缀（同时匹配单双引号的 xmlns 声明）
   let src = xml
     .replace(/<\?xml[^>]*\?>/g, '')
-    .replace(/\s+xmlns[^=]*="[^"]*"/g, '')
+    .replace(/\s+xmlns[^=]*=(?:"[^"]*"|'[^']*')/g, '')
     .replace(/<(\/?)\w+:/g, '<$1');   // 去掉命名空间前缀如 <x:workbook>
 
   const root: XmlNode = { tag: 'root', attrs: {}, text: '', children: [] };
   const stack: XmlNode[] = [root];
+  let nodeCount = 0;
 
   // 简单状态机：逐字符扫描标签
   let i = 0;
@@ -96,6 +100,11 @@ export function parseXml(xml: string): XmlNode {
       const tagContent = selfClose ? tag.slice(0, -1).trim() : tag;
       const node = parseTagContent(tagContent);
 
+      // 节点数上限守卫：防止恶意/损坏 XML 产生海量节点导致 OOM
+      if (++nodeCount > MAX_XML_NODES) {
+        throw new Error(`XML 节点数超限（${MAX_XML_NODES}），可能为恶意文件`);
+      }
+
       const current = stack[stack.length - 1];
       if (current) current.children.push(node);
       if (!selfClose) {
@@ -163,12 +172,16 @@ function isXmlCodePoint(code: number): boolean {
   return false;
 }
 
-/** 递归查找第一个匹配 tag 的节点 */
+/** 迭代查找第一个匹配 tag 的节点（显式栈，避免深嵌套 XML 栈溢出） */
 export function findFirst(node: XmlNode, tag: string): XmlNode | null {
-  if (node.tag === tag) return node;
-  for (const child of node.children) {
-    const found = findFirst(child, tag);
-    if (found) return found;
+  const stack: XmlNode[] = [node];
+  while (stack.length > 0) {
+    const n = stack.pop()!;
+    if (n.tag === tag) return n;
+    // 逆序入栈保证按文档顺序遍历
+    for (let i = n.children.length - 1; i >= 0; i--) {
+      stack.push(n.children[i]);
+    }
   }
   return null;
 }
@@ -178,13 +191,16 @@ export function findAll(node: XmlNode, tag: string): XmlNode[] {
   return node.children.filter(c => c.tag === tag);
 }
 
-/** 递归查找所有匹配 tag 的节点 */
+/** 迭代查找所有匹配 tag 的节点（显式栈，避免深嵌套 XML 栈溢出） */
 export function findAllDeep(node: XmlNode, tag: string): XmlNode[] {
   const result: XmlNode[] = [];
-  const dfs = (n: XmlNode) => {
+  const stack: XmlNode[] = [node];
+  while (stack.length > 0) {
+    const n = stack.pop()!;
     if (n.tag === tag) result.push(n);
-    n.children.forEach(dfs);
-  };
-  dfs(node);
+    for (let i = n.children.length - 1; i >= 0; i--) {
+      stack.push(n.children[i]);
+    }
+  }
   return result;
 }

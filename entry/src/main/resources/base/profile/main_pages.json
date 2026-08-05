@@ -1,16 +1,11 @@
 {
   "src": [
     "pages/Index",
-    "pages/BankListPage",
     "pages/ImportPage",
     "pages/BankDetailPage",
     "pages/PracticeConfigPage",
     "pages/QuizPage",
     "pages/ResultPage",
-    "pages/MistakePage",
-    "pages/HistoryPage",
-    "pages/HistoryDetailPage",
-    "pages/AnalysisPage",
-    "pages/SettingsPage"
+    "pages/HistoryDetailPage"
   ]
 }

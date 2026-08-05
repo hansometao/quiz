@@ -22,7 +22,7 @@ export default class EntryAbility extends UIAbility {
     // 注册响应式断点监听（平板/折叠屏自适应）
     BreakpointSystem.register(windowStage);
     windowStage.loadContent('pages/Index', (err) => {
-      if (err.code) {
+      if (err && err.code) {
         hilog.error(0x0000, TAG, '加载页面失败: %{public}s', JSON.stringify(err));
       }
     });

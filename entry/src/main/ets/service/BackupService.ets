@@ -24,6 +24,9 @@ interface BackupData {
   mistakes: MistakeItem[];
 }
 
+/** 备份文件大小上限（50MB），防止恶意/损坏文件触发 OOM */
+const MAX_BACKUP_FILE_SIZE = 50 * 1024 * 1024;
+
 export class BackupService {
   private static instance: BackupService;
   private db: DatabaseService = DatabaseService.getInstance();
@@ -73,11 +76,12 @@ export class BackupService {
     const fileName = 'quiz_backup_' + this.dateTag() + '.quizbackup';
     const filePath = ctx.filesDir + '/' + fileName;
 
-    const file = fs.openSync(filePath, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+    // 异步写入，避免阻塞 UI 线程
+    const file = await fs.open(filePath, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
     try {
-      fs.writeSync(file.fd, json);
+      await fs.write(file.fd, json);
     } finally {
-      fs.closeSync(file);
+      await fs.close(file);
     }
 
     return filePath;
@@ -104,33 +108,47 @@ export class BackupService {
 
       // 将 uri 拷贝到沙盒后读取（避免权限失效）
       tmpPath = ctx.cacheDir + '/import_tmp.quizbackup';
-      fs.copyFileSync(uris[0], tmpPath);
+      await fs.copyFile(uris[0], tmpPath);
 
-      const stat = fs.statSync(tmpPath);
+      const stat = await fs.stat(tmpPath);
+      // 文件大小校验：超过上限直接拒绝，避免分配超大 ArrayBuffer 触发 OOM
+      if (stat.size > MAX_BACKUP_FILE_SIZE) {
+        return { success: false, message: `备份文件过大（${Math.round(stat.size / 1024 / 1024)}MB），已拒绝导入` };
+      }
       const buf = new ArrayBuffer(stat.size);
-      const file = fs.openSync(tmpPath, fs.OpenMode.READ_ONLY);
+      const file = await fs.open(tmpPath, fs.OpenMode.READ_ONLY);
       try {
-        fs.readSync(file.fd, buf);
+        await fs.read(file.fd, buf);
       } finally {
-        fs.closeSync(file);
+        await fs.close(file);
       }
 
       // 使用 TextDecoder 流式解码，避免 8192 字节切分破坏多字节字符
       const json = this.textDecoder.decodeWithStream(new Uint8Array(buf), { stream: false });
       const data = JSON.parse(json) as Partial<BackupData>;
 
-      // 数据结构校验：必填字段与各数组存在性
-      if (!data.version || !data.banks) {
-        return { success: false, message: '文件格式不正确：缺少 version 或 banks 字段' };
+      // 强校验：version 必须为合法数字，banks/questions/sessions/answerRecords/mistakes 必须为数组
+      if (typeof data.version !== 'number' || data.version < 1) {
+        return { success: false, message: '文件格式不正确：version 字段缺失或非法' };
       }
-      const banks    = Array.isArray(data.banks)          ? data.banks          : [];
-      const questions = Array.isArray(data.questions)      ? data.questions      : [];
-      const sessions = Array.isArray(data.sessions)        ? data.sessions       : [];
-      const records  = Array.isArray(data.answerRecords)  ? data.answerRecords  : [];
-      const mistakes = Array.isArray(data.mistakes)       ? data.mistakes       : [];
+      if (!Array.isArray(data.banks) || !Array.isArray(data.questions) ||
+          !Array.isArray(data.sessions) || !Array.isArray(data.answerRecords) ||
+          !Array.isArray(data.mistakes)) {
+        return { success: false, message: '文件格式不正确：数据字段缺失或类型错误' };
+      }
 
-      // 执行还原（追加模式，返回插入/跳过计数）
-      const result = await this.db.backup.restore(banks, questions, sessions, records, mistakes);
+      // 还原前自动快照：将当前数据导出到 cacheDir 作为回滚点，
+      // 万一还原失败或用户误操作，可从快照恢复
+      let snapshotPath: string | null = null;
+      try {
+        snapshotPath = await this.createSnapshot(ctx);
+      } catch (e) {
+        // 快照失败不阻断还原，但记录警告
+        console.warn('还原前快照创建失败', e);
+      }
+
+      // 执行还原（覆盖模式：先清空全部业务表再插入备份数据）
+      const result = await this.db.backup.restore(data.banks, data.questions, data.sessions, data.answerRecords, data.mistakes);
 
       // 清理临时文件
       this.safeUnlink(tmpPath);
@@ -138,7 +156,7 @@ export class BackupService {
 
       return {
         success: true,
-        message: `还原成功：共恢复 ${result.inserted} 条数据`
+        message: `还原成功：共恢复 ${result.inserted} 条数据（已覆盖原有数据${snapshotPath ? '，还原前快照已保存' : ''}）`
       };
     } catch (e) {
       if (tmpPath) this.safeUnlink(tmpPath);
@@ -188,11 +206,11 @@ export class BackupService {
     const fileName = 'mistakes_' + this.dateTag() + '.csv';
     const filePath = ctx.filesDir + '/' + fileName;
 
-    const file = fs.openSync(filePath, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+    const file = await fs.open(filePath, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
     try {
-      fs.writeSync(file.fd, csv);
+      await fs.write(file.fd, csv);
     } finally {
-      fs.closeSync(file);
+      await fs.close(file);
     }
 
     return filePath;
@@ -215,6 +233,38 @@ export class BackupService {
   }
 
   // ─────────────────── 工具方法 ───────────────────
+
+  /**
+   * 还原前自动快照：将当前 DB 数据导出到 cacheDir 作为回滚点。
+   * 快照文件命名含时间戳，保留最近一份；失败不阻断还原流程。
+   */
+  private async createSnapshot(ctx: common.UIAbilityContext): Promise<string> {
+    const snapshotPath = ctx.cacheDir + '/pre_restore_snapshot.quizbackup';
+    const banks    = await this.db.banks.getAll();
+    const sessions = await this.db.sessions.getAll();
+    const mistakes = await this.db.mistakes.getAll();
+    const questionGroups = await Promise.all(
+      banks.filter(b => b.id !== undefined).map(b => this.db.questions.getByBank(b.id))
+    );
+    const questions: Question[] = questionGroups.flat();
+    const answerGroups = await Promise.all(
+      sessions.filter(s => s.id !== undefined).map(s => this.db.sessions.getAnswersBySession(s.id))
+    );
+    const answerRecords: AnswerRecord[] = answerGroups.flat();
+
+    const data: BackupData = {
+      version: 1, exportTime: new Date().toISOString(),
+      banks, questions, sessions, answerRecords, mistakes,
+    };
+    const json = JSON.stringify(data);
+    const file = await fs.open(snapshotPath, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+    try {
+      await fs.write(file.fd, json);
+    } finally {
+      await fs.close(file);
+    }
+    return snapshotPath;
+  }
 
   private dateTag(): string {
     const d = new Date();

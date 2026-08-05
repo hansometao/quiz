@@ -2,23 +2,35 @@
  * app.ets - 全局应用入口
  *
  * 在 HarmonyOS NEXT 中用于：
- * - 定义全局主题颜色（配合深色模式）
- * - 注册全局自定义字体
  * - 全局生命周期回调
- *
- * 注意：当前项目的颜色通过 resources/base/element/color.json 管理，
- * app.ets 中的颜色设置会与资源文件合并使用。
+ * - 注册全局错误处理
  */
 
-import { ConfigurationConstant } from '@kit.AbilityKit';
+import errorManager from '@ohos.app.ability.errorManager';
+import hilog from '@ohos.hilog';
+
+const TAG = 'app.ets';
 
 /**
- * 应用全局配置（可选）
- * 若不需要全局深色模式支持，可保留为空。
+ * 应用全局配置
  */
 export default {
   onCreate(): void {
-    // 应用冷启动时的初始化逻辑
-    // 可用于：注册全局错误处理、初始化公共组件等
+    // 注册全局错误处理：捕获未处理的异常和 Promise rejection，统一记录日志
+    try {
+      errorManager.on('error', (err) => {
+        hilog.error(0x0000, TAG, '全局异常: name=%{public}s, message=%{public}s, stack=%{public}s',
+          err.name ?? '', err.message ?? '', err.stack ?? '');
+      });
+    } catch (e) {
+      hilog.warn(0x0000, TAG, '注册 errorManager.on(error) 失败: %{public}s', JSON.stringify(e));
+    }
+    try {
+      errorManager.on('unhandledRejection', (err) => {
+        hilog.error(0x0000, TAG, '未处理的 Promise 拒绝: %{public}s', JSON.stringify(err));
+      });
+    } catch (e) {
+      hilog.warn(0x0000, TAG, '注册 errorManager.on(unhandledRejection) 失败: %{public}s', JSON.stringify(e));
+    }
   },
 };

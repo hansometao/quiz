@@ -116,20 +116,32 @@ struct BankDetailPage {
 
   async toggleStar(q: Question) {
     const db = DatabaseService.getInstance();
-    await db.questions.updateMeta(q.id, { isStarred: !q.isStarred });
-    if (!this.isAlive) return;
-    this.loadData(true);
+    try {
+      await db.questions.updateMeta(q.id, { isStarred: !q.isStarred });
+      if (!this.isAlive) return;
+      this.loadData(true);
+    } catch (e) {
+      if (!this.isAlive) return;
+      console.error('BankDetailPage toggleStar 失败', e);
+      this.showMsg('收藏失败');
+    }
   }
 
   async saveNote() {
     if (!this.selectedQuestion) return;
     const db = DatabaseService.getInstance();
-    await db.questions.updateMeta(this.selectedQuestion.id, { userNote: this.noteText });
-    if (!this.isAlive) return;
-    this.showMsg('笔记已保存');
-    this.showNoteDialog = false;
-    this.selectedQuestion = null;
-    this.loadData(true);
+    try {
+      await db.questions.updateMeta(this.selectedQuestion.id, { userNote: this.noteText });
+      if (!this.isAlive) return;
+      this.showMsg('笔记已保存');
+      this.showNoteDialog = false;
+      this.selectedQuestion = null;
+      this.loadData(true);
+    } catch (e) {
+      if (!this.isAlive) return;
+      console.error('BankDetailPage saveNote 失败', e);
+      this.showMsg('保存失败');
+    }
   }
 
   showMsg(msg: string) {

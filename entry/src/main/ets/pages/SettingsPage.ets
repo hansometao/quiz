@@ -18,11 +18,15 @@ export struct SettingsPage {
   @State showToast: boolean = false;
   @State exporting: boolean = false;
   @State importing: boolean = false;
+  @State exportingMistakes: boolean = false;
+  @State clearingHistory: boolean = false;
 
   private pref: preferences.Preferences | null = null;
   private backup: BackupService = BackupService.getInstance();
   // 标记页面是否已销毁，所有 await 后必须检查，避免在销毁组件上写状态
   private isAlive: boolean = true;
+  // save 防抖计时器：Slider 拖动时高频触发 onChange，防抖避免每 tick 都 flush 持久化
+  private saveDebounceTimer: number = -1;
 
   aboutToAppear() {
     this.loadPrefs();
@@ -53,6 +57,15 @@ export struct SettingsPage {
     if (!this.pref) return;
     await this.pref.put(key, value);
     await this.pref.flush();
+  }
+
+  /** 防抖持久化：Slider 拖动时高频触发，延迟 400ms 合并写入，避免 I/O 风暴 */
+  saveDebounced(key: string, value: preferences.ValueType): void {
+    if (this.saveDebounceTimer >= 0) clearTimeout(this.saveDebounceTimer);
+    this.saveDebounceTimer = setTimeout(() => {
+      this.saveDebounceTimer = -1;
+      this.save(key, value);
+    }, 400);
   }
 
   showMsg(msg: string) {
@@ -99,6 +112,8 @@ export struct SettingsPage {
 
   // ── 导出错题 CSV ──
   async doExportMistakes() {
+    if (this.exportingMistakes) return;
+    this.exportingMistakes = true;
     try {
       const ctx = getContext(this) as common.UIAbilityContext;
       const path = await this.backup.exportMistakesCSV(ctx);
@@ -109,11 +124,15 @@ export struct SettingsPage {
     } catch (e) {
       if (!this.isAlive) return;
       this.showMsg('导出失败：' + (e as Error).message);
+    } finally {
+      if (this.isAlive) this.exportingMistakes = false;
     }
   }
 
   // ── 清除记录 ──
   async doClearHistory() {
+    if (this.clearingHistory) return;
+    this.clearingHistory = true;
     try {
       await DatabaseService.getInstance().backup.clearAllHistory();
       if (!this.isAlive) return;
@@ -122,6 +141,8 @@ export struct SettingsPage {
     } catch (e) {
       if (!this.isAlive) return;
       this.showMsg('清除失败：' + (e as Error).message);
+    } finally {
+      if (this.isAlive) this.clearingHistory = false;
     }
   }
 
@@ -143,7 +164,7 @@ export struct SettingsPage {
               .padding({ left: 16, right: 16, top: 12, bottom: 8 })
               Slider({ value: this.fontSize, min: 0, max: 2, step: 1 })
                 .padding({ left: 16, right: 16, bottom: 12 })
-                .onChange((v) => { this.fontSize = Math.round(v); this.save('fontSize', Math.round(v)); })
+                .onChange((v) => { this.fontSize = Math.round(v); this.saveDebounced('fontSize', Math.round(v)); })
             }
             .backgroundColor($r('app.color.bg_card')).borderRadius(10).margin({ bottom: 8 })
 
@@ -168,7 +189,9 @@ export struct SettingsPage {
                 .padding({ left: 16, right: 16, bottom: 12 })
                 .onChange((v) => {
                   this.autoRemoveThreshold = Math.round(v);
-                  // 阈值统一由 DatabaseService 持久化（键 'auto_remove_threshold'），使答题时立即生效
+                })
+                .onSubmit(() => {
+                  // 拖动结束时才持久化，避免拖动过程中每 tick 都写 DB
                   DatabaseService.getInstance().syncAutoRemoveThreshold(this.autoRemoveThreshold);
                 })
             }

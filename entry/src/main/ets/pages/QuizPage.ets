@@ -72,7 +72,7 @@ struct QuizPage {
         // 题库为空或筛选无结果：提示并退出，避免后续 startTimer 在 0 题场景空转
         this.loading = false;
         promptAction.showToast({ message: '没有可练习的题目' });
-        setTimeout(() => router.back(), 800);
+        setTimeout(() => { if (this.isAlive) router.back(); }, 800);
         return;
       }
       const db = DatabaseService.getInstance();
@@ -90,7 +90,7 @@ struct QuizPage {
       console.error('QuizPage initQuiz 失败', e);
       this.loading = false;
       promptAction.showToast({ message: '出题失败：' + (e as Error).message });
-      setTimeout(() => router.back(), 1200);
+      setTimeout(() => { if (this.isAlive) router.back(); }, 1200);
     }
   }
 
@@ -290,9 +290,17 @@ struct QuizPage {
 
   private async skip(): Promise<void> {
     if (!this.currentQuestion) return;
+    // 防重入：复用 submitting 标志，防止双击跳过产生重复记录并静默跳过下一题
+    if (this.submitting) return;
+    if (this.submitted.get(this.currentIdx) ?? false) return;
+    this.submitting = true;
     if (this.skippedIndices.indexOf(this.currentIdx) < 0) {
       this.skippedIndices = [...this.skippedIndices, this.currentIdx];
     }
+    // 同步标记 submitted，UI 立即切换，杜绝二次点击
+    const preSubmitted = new Map(this.submitted);
+    preSubmitted.set(this.currentIdx, true);
+    this.submitted = preSubmitted;
     // 必须等 DB 写入完成再 next/finish，否则最后一题跳过后立即完成可能丢失该记录
     try {
       await DatabaseService.getInstance().sessions.insertAnswer(
@@ -300,10 +308,15 @@ struct QuizPage {
       );
     } catch (e) {
       console.error('QuizPage skip 失败', e);
+      // DB 失败：回滚 submitted 标志让用户可重试
+      const rolledBack = new Map(this.submitted);
+      rolledBack.set(this.currentIdx, false);
+      this.submitted = rolledBack;
+      this.submitting = false;
+      promptAction.showToast({ message: '跳过失败，请重试' });
+      return;
     }
-    const newSubmitted = new Map(this.submitted);
-    newSubmitted.set(this.currentIdx, true);
-    this.submitted = newSubmitted;
+    this.submitting = false;
     this.next();
   }
 
@@ -317,6 +330,8 @@ struct QuizPage {
   private prev(): void {
     if (this.currentIdx > 0) {
       this.currentIdx--;
+      // 重置计时基准：回到上一题后再前进时，耗时不应包含查看历史题目的时间
+      this.questionStartTime = Date.now();
     }
   }
 
