@@ -32,8 +32,10 @@ export struct MistakePage {
     const gen = ++this.loadGen;
     this.loading = true;
     try {
-      this.threshold = DatabaseService.getInstance().autoRemoveThreshold;
-      const mistakes = await DatabaseService.getInstance().mistakes.getWithQuestions();
+      const db = DatabaseService.getInstance();
+      await db.ready();
+      this.threshold = db.autoRemoveThreshold;
+      const mistakes = await db.mistakes.getWithQuestions();
       if (!this.isAlive || gen !== this.loadGen) return;
       this.mistakes = mistakes;
     } catch (e) {

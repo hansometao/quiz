@@ -15,8 +15,12 @@ export class QuizEngine {
 
     switch (config.mode) {
       case PracticeMode.MISTAKE:
-        // 错题专练：从错题本取题（bankId=0 表示全题库错题）
-        questions = await this.db.questions.getMistakesForPractice(bankId);
+        // 错题专练：从错题本取题（bankId=0 表示全题库错题），同样支持类型/分类/难度筛选
+        questions = await this.db.questions.getMistakesForPractice(bankId, {
+          types:        (config.types?.length        ?? 0) > 0 ? config.types        : undefined,
+          categories:   (config.categories?.length   ?? 0) > 0 ? config.categories   : undefined,
+          difficulties: (config.difficulties?.length ?? 0) > 0 ? config.difficulties : undefined,
+        });
         break;
       default:
         // SEQUENTIAL/RANDOM/EXAM/CATEGORY/DIFFICULTY 均从题库取题；
@@ -58,8 +62,9 @@ export class QuizEngine {
    * @returns true=正确, false=错误
    */
   checkAnswer(question: Question, userAnswer: string): boolean {
-    const correct = question.answer.trim().toUpperCase();
-    const user    = userAnswer.trim().toUpperCase();
+    // 防御 userAnswer 为 undefined/null（简答题未作答等异常路径）
+    const correct = (question.answer ?? '').trim().toUpperCase();
+    const user    = (userAnswer ?? '').trim().toUpperCase();
 
     switch (question.type) {
       case QuestionType.SINGLE:
@@ -74,8 +79,8 @@ export class QuizEngine {
       }
 
       case QuestionType.FILL: {
-        // 填空：关键词匹配（分号分隔，全部包含即正确）
-        const keywords = correct.split(';').map(k => k.trim().toLowerCase()).filter(Boolean);
+        // 填空：关键词匹配（中英文分号均可分隔，全部包含即正确）
+        const keywords = this.parseFillKeywords(correct);
         if (keywords.length === 0) return false;
         const uLower = user.toLowerCase();
         return keywords.every(kw => uLower.includes(kw));
@@ -90,14 +95,19 @@ export class QuizEngine {
     }
   }
 
+  /** 解析填空题关键词（支持中英文分号分隔） */
+  private parseFillKeywords(answer: string): string[] {
+    return answer.split(/[;；]/).map(k => k.trim().toLowerCase()).filter(Boolean);
+  }
+
   /**
    * 计算填空题得分（0~1）
    * 用于部分正确的给分场景
    */
   scoreFillAnswer(userAnswer: string, correctAnswer: string): number {
-    const keywords = correctAnswer.split(';').map(k => k.trim().toLowerCase()).filter(Boolean);
+    const keywords = this.parseFillKeywords(correctAnswer);
     if (keywords.length === 0) return 0;
-    const uLower = userAnswer.toLowerCase();
+    const uLower = (userAnswer ?? '').toLowerCase();
     const matched = keywords.filter(kw => uLower.includes(kw)).length;
     return matched / keywords.length;
   }

@@ -21,21 +21,30 @@ export struct SettingsPage {
 
   private pref: preferences.Preferences | null = null;
   private backup: BackupService = BackupService.getInstance();
+  // 标记页面是否已销毁，所有 await 后必须检查，避免在销毁组件上写状态
+  private isAlive: boolean = true;
 
   aboutToAppear() {
     this.loadPrefs();
+  }
+
+  aboutToDisappear() {
+    this.isAlive = false;
   }
 
   async loadPrefs() {
     try {
       const ctx = getContext(this) as common.UIAbilityContext;
       this.pref = await preferences.getPreferences(ctx, PREF_NAME);
+      if (!this.isAlive) return;
       this.fontSize            = await this.pref.get('fontSize',          1)     as number;
       this.soundEnabled        = await this.pref.get('soundEnabled',      true)  as boolean;
       this.vibrationEnabled    = await this.pref.get('vibrationEnabled',  true)  as boolean;
+      if (!this.isAlive) return;
       // 阈值统一由 DatabaseService 管理（键 'auto_remove_threshold'），避免双键分叉
       this.autoRemoveThreshold = DatabaseService.getInstance().autoRemoveThreshold;
     } catch (e) {
+      if (!this.isAlive) return;
       console.error('加载设置失败', e);
     }
   }
@@ -49,7 +58,7 @@ export struct SettingsPage {
   showMsg(msg: string) {
     this.toastMsg = msg;
     this.showToast = true;
-    setTimeout(() => { this.showToast = false; }, 2500);
+    setTimeout(() => { if (this.isAlive) this.showToast = false; }, 2500);
   }
 
   // ── 导出备份 ──
@@ -59,12 +68,15 @@ export struct SettingsPage {
     try {
       const ctx = getContext(this) as common.UIAbilityContext;
       const path = await this.backup.exportBackup(ctx);
+      if (!this.isAlive) return;
       await this.backup.shareFile(ctx, path);
+      if (!this.isAlive) return;
       this.showMsg('备份已导出，请通过分享保存到安全位置');
     } catch (e) {
+      if (!this.isAlive) return;
       this.showMsg('导出失败：' + (e as Error).message);
     } finally {
-      this.exporting = false;
+      if (this.isAlive) this.exporting = false;
     }
   }
 
@@ -75,11 +87,13 @@ export struct SettingsPage {
     try {
       const ctx = getContext(this) as common.UIAbilityContext;
       const result = await this.backup.importBackup(ctx);
+      if (!this.isAlive) return;
       this.showMsg(result.message);
     } catch (e) {
+      if (!this.isAlive) return;
       this.showMsg('还原失败：' + (e as Error).message);
     } finally {
-      this.importing = false;
+      if (this.isAlive) this.importing = false;
     }
   }
 
@@ -88,9 +102,12 @@ export struct SettingsPage {
     try {
       const ctx = getContext(this) as common.UIAbilityContext;
       const path = await this.backup.exportMistakesCSV(ctx);
+      if (!this.isAlive) return;
       await this.backup.shareFile(ctx, path);
+      if (!this.isAlive) return;
       this.showMsg('错题已导出为 CSV，请通过分享保存');
     } catch (e) {
+      if (!this.isAlive) return;
       this.showMsg('导出失败：' + (e as Error).message);
     }
   }
@@ -99,9 +116,11 @@ export struct SettingsPage {
   async doClearHistory() {
     try {
       await DatabaseService.getInstance().backup.clearAllHistory();
+      if (!this.isAlive) return;
       this.showConfirmClear = false;
       this.showMsg('答题记录已清除');
     } catch (e) {
+      if (!this.isAlive) return;
       this.showMsg('清除失败：' + (e as Error).message);
     }
   }
@@ -181,7 +200,7 @@ export struct SettingsPage {
               Row() {
                 Column() {
                   Text('导入还原').fontSize(15).fontColor($r('app.color.text_primary'))
-                  Text('从备份文件中还原数据（追加模式）').fontSize(12).fontColor($r('app.color.text_secondary'))
+                  Text('从备份文件中还原数据（覆盖当前数据）').fontSize(12).fontColor($r('app.color.text_secondary'))
                     .margin({ top: 2 })
                 }
                 .layoutWeight(1).alignItems(HorizontalAlign.Start)

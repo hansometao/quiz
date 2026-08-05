@@ -22,8 +22,14 @@ struct HistoryDetailPage {
   @State records: AnswerRecord[] = [];
   @State loading: boolean = true;
   @State expandedId: number = -1;  // 当前展开解析的记录 ID
+  // 标记页面是否已销毁，所有 await 后必须检查，避免在销毁组件上写状态
+  private isAlive: boolean = true;
 
   aboutToAppear() { this.loadData(); }
+
+  aboutToDisappear() {
+    this.isAlive = false;
+  }
 
   async loadData() {
     this.loading = true;
@@ -34,6 +40,7 @@ struct HistoryDetailPage {
         db.sessions.getById(this.sessionId),
         db.sessions.getAnswersBySession(this.sessionId),
       ]);
+      if (!this.isAlive) return;
       this.records = records;
       if (session) {
         this.session = session;
@@ -60,10 +67,11 @@ struct HistoryDetailPage {
         } as PracticeSession;
       }
     } catch (e) {
+      if (!this.isAlive) return;
       console.error('HistoryDetailPage loadData 失败', e);
     } finally {
       // 无论成功失败都释放 loading，避免界面永久转圈
-      this.loading = false;
+      if (this.isAlive) this.loading = false;
     }
   }
 
@@ -87,7 +95,7 @@ struct HistoryDetailPage {
           Row() {
             this.SummaryItem('题目数', String(this.session.totalCount))
             this.SummaryItem('正确', String(this.session.correctCount), '#34C759')
-            this.SummaryItem('错误', String(this.session.totalCount - this.session.correctCount), '#FF3B30')
+            this.SummaryItem('错误', String(this.wrongCount), '#FF3B30')
             this.SummaryItem('正确率', this.rateStr(this.session), this.rateColor(this.session))
           }
           .width('100%').padding({ left: 16, right: 16, bottom: 12 })
@@ -159,7 +167,7 @@ struct HistoryDetailPage {
                   this.expandedId = this.expandedId === r.id ? -1 : r.id;
                 })
               }
-            })
+            }, (r: AnswerRecord) => r.id.toString())
           }
           .layoutWeight(1).padding({ left: 16, right: 16, bottom: 16 })
         }

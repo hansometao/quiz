@@ -263,7 +263,7 @@ struct QuizPage {
     const engine = new QuizEngine();
     let isCorrect: AnswerStatus;
     if (q.type === QuestionType.ESSAY) {
-      isCorrect = AnswerStatus.SKIPPED; // 简答题：标记为待核，不进入错题本，也不触发连续正确计数
+      isCorrect = AnswerStatus.PENDING; // 简答题：标记为待核，不进入错题本，也不计入跳过统计
     } else {
       isCorrect = engine.checkAnswer(q, userAns) ? AnswerStatus.CORRECT : AnswerStatus.WRONG;
     }

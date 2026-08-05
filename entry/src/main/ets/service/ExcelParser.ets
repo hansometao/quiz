@@ -161,20 +161,36 @@ export class ExcelParser {
     const rows = findAll(sheetData, 'row');
     const result: string[][] = [];
 
+    // OOXML 规范允许省略 r 属性（按出现顺序递增），需维护自增计数器兜底
+    let rowCounter = 0;
     for (const row of rows) {
-      const rowIdx = parseInt(row.attrs['r'] ?? '1') - 1;
+      const rAttr = row.attrs['r'];
+      const rowIdx = rAttr ? parseInt(rAttr) - 1 : rowCounter;
+      rowCounter = rowIdx + 1;
       while (result.length <= rowIdx) result.push([]);
       const cells = findAll(row, 'c');
+      let colCounter = 0;
       for (const cell of cells) {
         const ref = cell.attrs['r'] ?? '';
-        const { col } = parseCellRef(ref);
+        const { col } = ref ? parseCellRef(ref) : { col: colCounter };
+        colCounter = col + 1;
         const type = cell.attrs['t'] ?? '';
-        const vNode = findFirst(cell, 'v');
-        let value = vNode ? vNode.text : '';
-        if (type === 's') {
-          // 共享字符串索引
-          const idx = parseInt(value);
-          value = sharedStrings[idx] ?? '';
+        let value = '';
+        if (type === 'inlineStr') {
+          // inlineStr 类型：文本在 <is><t> 子节点内
+          const isNode = findFirst(cell, 'is');
+          if (isNode) {
+            const ts = findAllDeep(isNode, 't');
+            value = ts.map(t => t.text).join('');
+          }
+        } else {
+          const vNode = findFirst(cell, 'v');
+          value = vNode ? vNode.text : '';
+          if (type === 's') {
+            // 共享字符串索引
+            const idx = parseInt(value);
+            value = sharedStrings[idx] ?? '';
+          }
         }
         while (result[rowIdx].length <= col) result[rowIdx].push('');
         result[rowIdx][col] = value.trim();

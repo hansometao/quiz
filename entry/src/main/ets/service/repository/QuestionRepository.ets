@@ -80,15 +80,18 @@ export class QuestionRepository {
 
     const result = await this.store.querySql(sql, args);
     const questions: Question[] = [];
-    while (result.goToNextRow()) {
-      questions.push(this.rowToQuestion(result));
+    try {
+      while (result.goToNextRow()) {
+        questions.push(this.rowToQuestion(result));
+      }
+    } finally {
+      result.close();
     }
-    result.close();
     return questions;
   }
 
   /** 查询错题专练用题目（从 mistakes 表取，含练习进度） */
-  async getMistakesForPractice(bankId?: number): Promise<Question[]> {
+  async getMistakesForPractice(bankId?: number, options?: QuestionQueryOptions): Promise<Question[]> {
     let sql = `
       SELECT q.*, qs.attempt_count, qs.correct_count, qs.last_answered
       FROM mistakes m
@@ -100,14 +103,30 @@ export class QuestionRepository {
       sql += ` WHERE m.bank_id = ?`;
       args.push(bankId);
     }
+    // 支持类型/分类/难度筛选（与 getByBank 一致），修复 MISTAKE 模式忽略 config 筛选的问题
+    if (options?.types && options.types.length > 0) {
+      sql += (args.length > 0 ? ` AND` : ` WHERE`) + ` q.type IN (${options.types.map(() => '?').join(',')})`;
+      args.push(...options.types);
+    }
+    if (options?.categories && options.categories.length > 0) {
+      sql += (args.length > 0 ? ` AND` : ` WHERE`) + ` q.category IN (${options.categories.map(() => '?').join(',')})`;
+      args.push(...options.categories);
+    }
+    if (options?.difficulties && options.difficulties.length > 0) {
+      sql += (args.length > 0 ? ` AND` : ` WHERE`) + ` q.difficulty IN (${options.difficulties.map(() => '?').join(',')})`;
+      args.push(...options.difficulties);
+    }
     sql += ` ORDER BY m.updated_at DESC`;
 
     const result = await this.store.querySql(sql, args);
     const questions: Question[] = [];
-    while (result.goToNextRow()) {
-      questions.push(this.rowToQuestion(result));
+    try {
+      while (result.goToNextRow()) {
+        questions.push(this.rowToQuestion(result));
+      }
+    } finally {
+      result.close();
     }
-    result.close();
     return questions;
   }
 
@@ -115,10 +134,13 @@ export class QuestionRepository {
     const sql = `SELECT DISTINCT category FROM questions WHERE bank_id = ? AND category != '' ORDER BY category`;
     const result = await this.store.querySql(sql, [bankId]);
     const cats: string[] = [];
-    while (result.goToNextRow()) {
-      cats.push(result.getString(0));
+    try {
+      while (result.goToNextRow()) {
+        cats.push(result.getString(0));
+      }
+    } finally {
+      result.close();
     }
-    result.close();
     return cats;
   }
 
@@ -144,10 +166,13 @@ export class QuestionRepository {
     const sql = `SELECT * FROM questions WHERE id IN (${placeholders})`;
     const result = await this.store.querySql(sql, ids);
     const questions: Question[] = [];
-    while (result.goToNextRow()) {
-      questions.push(this.rowToQuestion(result));
+    try {
+      while (result.goToNextRow()) {
+        questions.push(this.rowToQuestion(result));
+      }
+    } finally {
+      result.close();
     }
-    result.close();
     return questions;
   }
 
@@ -155,12 +180,13 @@ export class QuestionRepository {
     const predicates = new relationalStore.RdbPredicates('questions');
     predicates.equalTo('id', id);
     const result = await this.store.query(predicates);
-    if (result.goToFirstRow()) {
-      const q = this.rowToQuestion(result);
+    try {
+      if (result.goToFirstRow()) {
+        return this.rowToQuestion(result);
+      }
+    } finally {
       result.close();
-      return q;
     }
-    result.close();
     return null;
   }
 

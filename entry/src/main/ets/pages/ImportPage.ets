@@ -15,6 +15,12 @@ struct ImportPage {
   @State loadingMsg: string = '';
   @State result: ImportResult | null = null;
   @State editName: string = '';
+  // 标记页面是否已销毁，所有 await 后必须检查，避免在销毁组件上写状态
+  private isAlive: boolean = true;
+
+  aboutToDisappear() {
+    this.isAlive = false;
+  }
 
   build() {
     Stack() {
@@ -101,7 +107,7 @@ struct ImportPage {
           Text('⚠️ 以下行有问题：').fontSize(13).fontColor($r('app.color.warning')).margin({ bottom: 6 })
           ForEach(this.result!.errors.slice(0, 10), (err: string) => {
             Text('• ' + err).fontSize(12).fontColor($r('app.color.text_secondary')).margin({ bottom: 3 })
-          })
+          }, (err: string, idx: number) => idx.toString())
           if (this.result!.errors.length > 10) {
             Text(`还有 ${this.result!.errors.length - 10} 个问题...`).fontSize(12).fontColor($r('app.color.text_tertiary'))
           }
@@ -152,6 +158,7 @@ struct ImportPage {
       const tmpDir = `${context.cacheDir}/xlsx_tmp_${Date.now()}`;
       const parser = new ExcelParser();
       const parseResult = await parser.parse(filePath, tmpDir);
+      if (!this.isAlive) return;
 
       this.editName = parseResult.bankName || '未命名题库';
       this.result = {
@@ -163,11 +170,12 @@ struct ImportPage {
         errors: parseResult.errors,
       };
     } catch (e) {
+      if (!this.isAlive) return;
       console.error('解析失败', e);
       this.result = null;
       promptAction.showToast({ message: '解析失败：' + ((e as Error).message || '未知错误') });
     }
-    this.loading = false;
+    if (this.isAlive) this.loading = false;
   }
 
   private saving: boolean = false;  // 防重入
@@ -184,6 +192,7 @@ struct ImportPage {
       bankId = await db.banks.insert(this.editName, '', this.result.filePath);
       await db.questions.batchInsert(bankId, this.result.questions);
       await db.banks.refreshCount(bankId);
+      if (!this.isAlive) return;
       this.loading = false;
       router.back();
     } catch (e) {
@@ -192,6 +201,7 @@ struct ImportPage {
       if (bankId !== null) {
         try { await db.banks.delete(bankId); } catch {}
       }
+      if (!this.isAlive) return;
       this.loading = false;
       promptAction.showToast({ message: '保存失败：' + ((e as Error).message || '请重试') });
     } finally {

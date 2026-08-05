@@ -39,9 +39,15 @@ struct BankDetailPage {
   private hasMore: boolean = true;
   // 请求代际：每次 reset 自增，await 后比较，丢弃过期请求结果（避免旧筛选数据混入新视图）
   private loadGen: number = 0;
+  // 标记页面是否已销毁，所有 await 后必须检查，避免在销毁组件上写状态
+  private isAlive: boolean = true;
   readonly PAGE_SIZE = 30;
 
   aboutToAppear() { this.loadData(true); }
+
+  aboutToDisappear() {
+    this.isAlive = false;
+  }
 
   async loadData(reset: boolean = false) {
     if (reset) {
@@ -50,6 +56,9 @@ struct BankDetailPage {
       this.loading = true;
       this.ds.clear();
       this.loadGen++;  // 新一轮筛选，作废所有在途的旧请求
+    } else {
+      // 追加加载并发守卫：防止上拉/点击双触发导致同一页数据重复追加
+      if (this.loadingMore) return;
     }
     if (!this.hasMore) return;
 
@@ -93,7 +102,9 @@ struct BankDetailPage {
     try {
       await db.questions.deleteById(q.id);
       await db.banks.refreshCount(this.bankId);
+      if (!this.isAlive) return;
       this.bank = await db.banks.getById(this.bankId);
+      if (!this.isAlive) return;
       this.showMsg('已删除题目');
       this.loadData(true);
     } catch {
@@ -106,6 +117,7 @@ struct BankDetailPage {
   async toggleStar(q: Question) {
     const db = DatabaseService.getInstance();
     await db.questions.updateMeta(q.id, { isStarred: !q.isStarred });
+    if (!this.isAlive) return;
     this.loadData(true);
   }
 
@@ -113,6 +125,7 @@ struct BankDetailPage {
     if (!this.selectedQuestion) return;
     const db = DatabaseService.getInstance();
     await db.questions.updateMeta(this.selectedQuestion.id, { userNote: this.noteText });
+    if (!this.isAlive) return;
     this.showMsg('笔记已保存');
     this.showNoteDialog = false;
     this.selectedQuestion = null;
@@ -122,7 +135,7 @@ struct BankDetailPage {
   showMsg(msg: string) {
     this.toastMsg = msg;
     this.showToast = true;
-    setTimeout(() => { this.showToast = false; }, 2000);
+    setTimeout(() => { if (this.isAlive) this.showToast = false; }, 2000);
   }
 
   build() {

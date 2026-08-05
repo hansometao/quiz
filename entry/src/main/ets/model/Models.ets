@@ -158,6 +158,7 @@ export enum AnswerStatus {
   WRONG   = 0,
   CORRECT = 1,
   SKIPPED = 2,
+  PENDING = 3,  // 简答题等待用户自评，不计入正确/错误/跳过
 }
 
 /**

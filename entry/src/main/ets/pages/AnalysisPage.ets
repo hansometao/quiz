@@ -41,6 +41,7 @@ export struct AnalysisPage {
     this.loading = true;
     const db = DatabaseService.getInstance();
     try {
+      await db.ready();
       // 三个查询互不依赖，并行化缩短加载时间
       const [overall, daily, categories] = await Promise.all([
         db.stats.getOverall(),
@@ -201,7 +202,7 @@ export struct AnalysisPage {
                     .backgroundColor(this.selectedDays === d ? $r('app.color.primary') : $r('app.color.bg_primary'))
                     .margin({ left: 6 })
                     .onClick(() => { this.selectedDays = d; this.loadStats(); })
-                })
+                }, (d: number) => d.toString())
               }
               .margin({ bottom: 12 })
 

@@ -10,9 +10,14 @@ export struct BankListPage {
   @State loading: boolean = false;
   @StorageProp('tabTick') @Watch('onTabTick') private tabTick: number = 0;
   @StorageProp('activeTab') private activeTab: number = 0;
+  private isAlive: boolean = true;
 
   aboutToAppear() {
     this.loadBanks();
+  }
+
+  aboutToDisappear() {
+    this.isAlive = false;
   }
 
   // Index 切换/回显时通过 AppStorage 通知刷新（@Component 子组件不接收 onPageShow）
@@ -25,11 +30,18 @@ export struct BankListPage {
   async loadBanks() {
     this.loading = true;
     try {
-      this.banks = await DatabaseService.getInstance().banks.getAll();
+      // 确保数据库初始化完成后再查询，解决冷启动时子组件 aboutToAppear 先于
+      // Index 的 async aboutToAppear 完成导致的竞态
+      await DatabaseService.getInstance().ready();
+      const banks = await DatabaseService.getInstance().banks.getAll();
+      if (!this.isAlive) return;
+      this.banks = banks;
     } catch (e) {
+      if (!this.isAlive) return;
       console.error('加载题库失败', e);
+    } finally {
+      if (this.isAlive) this.loading = false;
     }
-    this.loading = false;
   }
 
   build() {
@@ -74,7 +86,7 @@ export struct BankListPage {
                   }),
                 })
               }
-            })
+            }, (bank: QuestionBank) => bank.id.toString())
           }
           .layoutWeight(1)
           .padding({ left: 16, right: 16, bottom: 16 })

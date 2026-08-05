@@ -12,16 +12,23 @@ struct ResultPage {
   @State session: PracticeSession | null = null;
   @State records: AnswerRecord[] = [];
   @State loading: boolean = true;
+  // 标记页面是否已销毁，所有 await 后必须检查，避免在销毁组件上写状态
+  private isAlive: boolean = true;
 
   get correctCount():  number { return this.records.filter(r => r.isCorrect === AnswerStatus.CORRECT).length; }
   get wrongCount():    number { return this.records.filter(r => r.isCorrect === AnswerStatus.WRONG).length; }
   get skippedCount():  number { return this.records.filter(r => r.isCorrect === AnswerStatus.SKIPPED).length; }
+  get pendingCount():  number { return this.records.filter(r => r.isCorrect === AnswerStatus.PENDING).length; }
   get totalCount():    number { return this.session?.totalCount ?? this.records.length; }
   get correctRate():   number { return this.totalCount > 0 ? this.correctCount / this.totalCount : 0; }
   get wrongRecords():  AnswerRecord[] { return this.records.filter(r => r.isCorrect === AnswerStatus.WRONG); }
 
   aboutToAppear() {
     this.loadData();
+  }
+
+  aboutToDisappear() {
+    this.isAlive = false;
   }
 
   async loadData() {
@@ -32,6 +39,7 @@ struct ResultPage {
         db.sessions.getById(this.sessionId),
         db.sessions.getAnswersBySession(this.sessionId),
       ]);
+      if (!this.isAlive) return;
       this.records = records;
       if (session) {
         this.session = session;
@@ -58,9 +66,10 @@ struct ResultPage {
         } as PracticeSession;
       }
     } catch (e) {
+      if (!this.isAlive) return;
       console.error('ResultPage loadData 失败', e);
     } finally {
-      this.loading = false;
+      if (this.isAlive) this.loading = false;
     }
   }
 
@@ -86,6 +95,9 @@ struct ResultPage {
                 this.ScoreItem(String(this.correctCount),  '正确', '#4ADE80')
                 this.ScoreItem(String(this.wrongCount),    '错误', '#FCA5A5')
                 this.ScoreItem(String(this.skippedCount),  '跳过', '#FCD34D')
+                if (this.pendingCount > 0) {
+                  this.ScoreItem(String(this.pendingCount), '待核', '#C0C0C0')
+                }
               }
               .margin({ bottom: 8 })
 
@@ -111,7 +123,7 @@ struct ResultPage {
           Button('返回首页')
             .layoutWeight(1).height(44).fontSize(15).borderRadius(12)
             .backgroundColor($r('app.color.primary')).fontColor(Color.White)
-            .onClick(() => router.pushUrl({ url: 'pages/Index' }))
+            .onClick(() => router.back({ url: 'pages/Index' }))
         }
         .padding(16)
 

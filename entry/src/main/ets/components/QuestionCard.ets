@@ -199,7 +199,7 @@ export struct QuestionCard {
           isCorrect:  this.question.answer.includes(opt.key),
           onSelect:   () => this.handleOptionSelect(opt.key),
         })
-      })
+      }, (opt: OptionInfo) => opt.key)
     }
   }
 

@@ -105,7 +105,7 @@ export class SessionRepository {
     return sessions;
   }
 
-  /** 插入答题记录并同步统计 */
+  /** 插入答题记录并同步统计（事务保证原子性，避免答题记录与统计表不一致） */
   async insertAnswer(sessionId: number, questionId: number, userAnswer: string,
                      isCorrect: number, timeSpentMs: number): Promise<void> {
     const now = Math.floor(Date.now() / 1000);
@@ -117,19 +117,25 @@ export class SessionRepository {
       time_spent_ms: timeSpentMs,
       answered_at:  now,
     };
-    await this.store.insert('answer_records', values);
-    // upsert question_stats
     const correct = isCorrect === 1 ? 1 : 0;
-    await this.store.executeSql(
-      `INSERT INTO question_stats (question_id, attempt_count, correct_count, last_answered, updated_at)
-       VALUES (?, 1, ?, ?, ?)
-       ON CONFLICT(question_id) DO UPDATE SET
-         attempt_count = attempt_count + 1,
-         correct_count = correct_count + ?,
-         last_answered = ?,
-         updated_at = ?`,
-      [questionId, correct, now, now, correct, now, now]
-    );
+    await this.store.beginTransaction();
+    try {
+      await this.store.insert('answer_records', values);
+      await this.store.executeSql(
+        `INSERT INTO question_stats (question_id, attempt_count, correct_count, last_answered, updated_at)
+         VALUES (?, 1, ?, ?, ?)
+         ON CONFLICT(question_id) DO UPDATE SET
+           attempt_count = attempt_count + 1,
+           correct_count = correct_count + ?,
+           last_answered = ?,
+           updated_at = ?`,
+        [questionId, correct, now, now, correct, now, now]
+      );
+      await this.store.commit();
+    } catch (err) {
+      await this.store.rollBack();
+      throw err;
+    }
   }
 
   /** 查询某会话全部答题（JOIN 题目） */
@@ -145,24 +151,27 @@ export class SessionRepository {
     const result = await this.store.querySql(sql, [sessionId]);
     const records: AnswerRecord[] = [];
     const qRepo = new QuestionRepository(this.store);
-    while (result.goToNextRow()) {
-      const q = qRepo.rowToQuestion(result);
-      // ar.* 与 q.id 同名，getColumnIndex('id') 命中 answer_records.id；
-      // question 的真实 id 用别名 q_id 取回覆盖
-      const qIdIdx = result.getColumnIndex('q_id');
-      if (qIdIdx >= 0) q.id = result.getLong(qIdIdx);
-      records.push({
-        id:           result.getLong(result.getColumnIndex('id')),
-        sessionId:    result.getLong(result.getColumnIndex('session_id')),
-        questionId:   result.getLong(result.getColumnIndex('question_id')),
-        userAnswer:   result.getString(result.getColumnIndex('user_answer')),
-        isCorrect:    result.getLong(result.getColumnIndex('is_correct')),
-        timeSpentMs:  result.getLong(result.getColumnIndex('time_spent_ms')),
-        answeredAt:   result.getLong(result.getColumnIndex('answered_at')),
-        question:     q,
-      });
+    try {
+      while (result.goToNextRow()) {
+        const q = qRepo.rowToQuestion(result);
+        // ar.* 与 q.id 同名，getColumnIndex('id') 命中 answer_records.id；
+        // question 的真实 id 用别名 q_id 取回覆盖
+        const qIdIdx = result.getColumnIndex('q_id');
+        if (qIdIdx >= 0) q.id = result.getLong(qIdIdx);
+        records.push({
+          id:           result.getLong(result.getColumnIndex('id')),
+          sessionId:    result.getLong(result.getColumnIndex('session_id')),
+          questionId:   result.getLong(result.getColumnIndex('question_id')),
+          userAnswer:   result.getString(result.getColumnIndex('user_answer')),
+          isCorrect:    result.getLong(result.getColumnIndex('is_correct')),
+          timeSpentMs:  result.getLong(result.getColumnIndex('time_spent_ms')),
+          answeredAt:   result.getLong(result.getColumnIndex('answered_at')),
+          question:     q,
+        });
+      }
+    } finally {
+      result.close();
     }
-    result.close();
     return records;
   }
 
@@ -171,18 +180,21 @@ export class SessionRepository {
     const sql = `SELECT * FROM answer_records`;
     const result = await this.store.querySql(sql);
     const records: AnswerRecord[] = [];
-    while (result.goToNextRow()) {
-      records.push({
-        id:           result.getLong(result.getColumnIndex('id')),
-        sessionId:    result.getLong(result.getColumnIndex('session_id')),
-        questionId:   result.getLong(result.getColumnIndex('question_id')),
-        userAnswer:   result.getString(result.getColumnIndex('user_answer')),
-        isCorrect:    result.getLong(result.getColumnIndex('is_correct')),
-        timeSpentMs:  result.getLong(result.getColumnIndex('time_spent_ms')),
-        answeredAt:   result.getLong(result.getColumnIndex('answered_at')),
-      });
+    try {
+      while (result.goToNextRow()) {
+        records.push({
+          id:           result.getLong(result.getColumnIndex('id')),
+          sessionId:    result.getLong(result.getColumnIndex('session_id')),
+          questionId:   result.getLong(result.getColumnIndex('question_id')),
+          userAnswer:   result.getString(result.getColumnIndex('user_answer')),
+          isCorrect:    result.getLong(result.getColumnIndex('is_correct')),
+          timeSpentMs:  result.getLong(result.getColumnIndex('time_spent_ms')),
+          answeredAt:   result.getLong(result.getColumnIndex('answered_at')),
+        });
+      }
+    } finally {
+      result.close();
     }
-    result.close();
     return records;
   }
 

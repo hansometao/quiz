@@ -32,6 +32,7 @@ export struct HistoryPage {
     const gen = ++this.loadGen;
     this.loading = true;
     try {
+      await DatabaseService.getInstance().ready();
       const sessions = await DatabaseService.getInstance().sessions.getCompleted(100);
       if (!this.isAlive || gen !== this.loadGen) return;
       this.sessions = sessions;

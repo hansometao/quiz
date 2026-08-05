@@ -106,7 +106,9 @@ export struct ProgressRing {
   private draw(): void {
     const c = this.ctx;
     const s = this.size;
-    const r = (s - this.strokeWidth) / 2;
+    // strokeWidth 不应超过 size，否则半径为负导致 arc 行为异常
+    const sw = Math.min(this.strokeWidth, s);
+    const r = Math.max((s - sw) / 2, 1);
     const cx = s / 2, cy = s / 2;
 
     c.clearRect(0, 0, s, s);
@@ -115,20 +117,21 @@ export struct ProgressRing {
     c.beginPath();
     c.arc(cx, cy, r, 0, Math.PI * 2);
     c.strokeStyle = this.bgColor;
-    c.lineWidth = this.strokeWidth;
+    c.lineWidth = sw;
     c.stroke();
 
-    // 进度弧
-    const angle = -Math.PI / 2 + (this.progress * Math.PI * 2);
+    // 进度弧（progress 钳制到 [0,1]，防止越界绘制多余圈数）
+    const p = Math.max(0, Math.min(1, this.progress));
+    const angle = -Math.PI / 2 + (p * Math.PI * 2);
     c.beginPath();
     c.arc(cx, cy, r, -Math.PI / 2, angle);
     c.strokeStyle = this.color;
-    c.lineWidth = this.strokeWidth;
+    c.lineWidth = sw;
     c.lineCap = 'round';
     c.stroke();
 
     // 进度文字
-    const pct = Math.round(this.progress * 100) + '%';
+    const pct = Math.round(p * 100) + '%';
     c.fillStyle = '#1C1C1E';
     c.font = `bold ${Math.round(s * 0.22)}px sans-serif`;
     c.textAlign = 'center';

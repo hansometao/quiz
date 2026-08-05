@@ -138,7 +138,7 @@ export class BackupService {
 
       return {
         success: true,
-        message: `还原成功：新增 ${result.inserted} 条，跳过已存在 ${result.skipped} 条`
+        message: `还原成功：共恢复 ${result.inserted} 条数据`
       };
     } catch (e) {
       if (tmpPath) this.safeUnlink(tmpPath);

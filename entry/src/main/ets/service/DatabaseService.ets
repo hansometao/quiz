@@ -149,6 +149,14 @@ export class DatabaseService {
     return this.initPromise;
   }
 
+  /** 等待数据库初始化完成。页面 load 方法调用此方法确保 DB 就绪后再查询，
+   *  解决 EntryAbility.onCreate 异步 init 与 loadContent 同步触发页面加载的竞态 */
+  ready(): Promise<void> {
+    if (this.initPromise) return this.initPromise;
+    if (this.store) return Promise.resolve();
+    return Promise.reject(new Error('数据库尚未初始化'));
+  }
+
   private async doInit(context: common.Context): Promise<void> {
     try {
       const config: relationalStore.StoreConfig = {

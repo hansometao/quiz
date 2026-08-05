@@ -40,17 +40,26 @@ struct PracticeConfigPage {
     { value: Difficulty.HARD,   label: '困难' },
   ];
 
+  // 标记页面是否已销毁，所有 await 后必须检查，避免在销毁组件上写状态
+  private isAlive: boolean = true;
+
   aboutToAppear() {
     this.loadMeta();
+  }
+
+  aboutToDisappear() {
+    this.isAlive = false;
   }
 
   async loadMeta() {
     const db = DatabaseService.getInstance();
     const bank = await db.banks.getById(this.bankId);
+    if (!this.isAlive) return;
     this.maxCount = bank?.totalCount ?? 0;
     // 题库为空时 totalCount=0，开始按钮会被禁用；非空时取 min(20, 题数)
     this.totalCount = this.maxCount > 0 ? Math.min(20, this.maxCount) : 0;
     this.categories = await db.questions.getCategories(this.bankId);
+    if (!this.isAlive) return;
   }
 
   // 切换模式时重置不相关的配置项，避免跨模式状态泄漏（如 EXAM 限时带入 RANDOM）
@@ -121,7 +130,7 @@ struct PracticeConfigPage {
                   .border({ width: 1, color: this.selectedMode === mode ? $r('app.color.primary') : $r('app.color.border') })
                   .onClick(() => this.onModeChange(mode))
               }
-            })
+            }, (mode: PracticeMode) => mode)
           }
           .columnsTemplate('1fr 1fr 1fr')
           .rowsGap(10).columnsGap(10)
@@ -162,7 +171,7 @@ struct PracticeConfigPage {
                   .border({ width: 1, color: this.selectedCategories.includes(cat) ? $r('app.color.primary') : $r('app.color.border') })
                   .margin({ right: 8, bottom: 8 })
                   .onClick(() => this.toggleCategory(cat))
-              })
+              }, (cat: string) => cat)
             }
             .margin({ bottom: 20 })
           }
@@ -180,7 +189,7 @@ struct PracticeConfigPage {
                 .border({ width: 1, color: this.selectedTypes.includes(opt.value) ? $r('app.color.primary') : $r('app.color.border') })
                 .margin({ right: 8, bottom: 8 })
                 .onClick(() => this.toggleType(opt.value))
-            })
+            }, (opt: { value: QuestionType, label: string }) => opt.value)
           }
           .margin({ bottom: 20 })
 
@@ -197,7 +206,7 @@ struct PracticeConfigPage {
                 .border({ width: 1, color: this.selectedDifficulties.includes(opt.value) ? $r('app.color.primary') : $r('app.color.border') })
                 .margin({ right: 8, bottom: 8 })
                 .onClick(() => this.toggleDifficulty(opt.value))
-            })
+            }, (opt: { value: Difficulty, label: string }) => opt.value.toString())
           }
           .margin({ bottom: 20 })
 
