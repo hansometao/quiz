@@ -101,18 +101,6 @@ export class QuizEngine {
   }
 
   /**
-   * 计算填空题得分（0~1）
-   * 用于部分正确的给分场景
-   */
-  scoreFillAnswer(userAnswer: string, correctAnswer: string): number {
-    const keywords = this.parseFillKeywords(correctAnswer);
-    if (keywords.length === 0) return 0;
-    const uLower = (userAnswer ?? '').toLowerCase();
-    const matched = keywords.filter(kw => uLower.includes(kw)).length;
-    return matched / keywords.length;
-  }
-
-  /**
    * 获取难度显示文字
    */
   static difficultyLabel(d: Difficulty): string {

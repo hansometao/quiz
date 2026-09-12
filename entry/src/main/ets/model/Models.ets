@@ -176,9 +176,6 @@ export interface AnswerRecord {
   question?: Question;
 }
 
-/** 填空题评分回调类型 */
-export type FillScoreCallback = (userAnswer: string, correctAnswer: string) => number;
-
 /**
  * 题目统计缓存
  */
