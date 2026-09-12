@@ -192,8 +192,9 @@ export class DatabaseService {
   private async loadThreshold(context: common.Context): Promise<void> {
     try {
       this.prefStore = await preferences.getPreferences(context, PREF_NAME);
-      const v = await this.prefStore.get(KEY_AUTO_REMOVE_THRESHOLD, DEFAULT_THRESHOLD);
-      this._autoRemoveThreshold = v as number;
+      const v = Number(await this.prefStore.get(KEY_AUTO_REMOVE_THRESHOLD, DEFAULT_THRESHOLD));
+      // 读回值与写入端 syncAutoRemoveThreshold 保持同一约束（≥1 的整数），防御旧版本或外部写入的非法值
+      this._autoRemoveThreshold = Number.isFinite(v) ? Math.max(1, Math.floor(v)) : DEFAULT_THRESHOLD;
     } catch (err) {
       hilog.warn(0x0000, TAG, `load threshold failed: ${JSON.stringify(err)}, use default`);
       this._autoRemoveThreshold = DEFAULT_THRESHOLD;
@@ -223,6 +224,9 @@ export class DatabaseService {
       }
       this.store = null;
     }
+    // 同步释放偏好实例引用：close 后不应再向已废弃实例写入；
+    // 下次 init 的 loadThreshold 会重新 getPreferences 获取
+    this.prefStore = null;
     this.initPromise = null;
   }
 }
