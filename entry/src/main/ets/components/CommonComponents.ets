@@ -63,7 +63,7 @@ export struct LoadingOverlay {
           }
         }
         .padding(32)
-        .backgroundColor('#CC000000')
+        .backgroundColor($r('app.color.mask_80'))
         .borderRadius(12)
         .justifyContent(FlexAlign.Center)
         .alignItems(HorizontalAlign.Center)

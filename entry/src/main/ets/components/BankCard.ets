@@ -86,7 +86,7 @@ export struct BankCard {
     .padding(16)
     .backgroundColor($r('app.color.bg_card'))
     .borderRadius(12)
-    .shadow({ radius: 4, color: '#0000001A', offsetX: 0, offsetY: 2 })
+    .shadow({ radius: 4, color: $r('app.color.shadow'), offsetX: 0, offsetY: 2 })
   }
 
   @Builder StatItem(text: string) {

@@ -15,6 +15,27 @@
     { "name": "dark_bg_primary", "value": "#1C1C1E" },
     { "name": "dark_bg_card", "value": "#2C2C2E" },
     { "name": "dark_text_primary", "value": "#FFFFFF" },
-    { "name": "dark_text_secondary", "value": "#AEAEB2" }
+    { "name": "dark_text_secondary", "value": "#AEAEB2" },
+    { "name": "shadow", "value": "#0000001A" },
+    { "name": "primary_light", "value": "#E8F2FF" },
+    { "name": "success_light", "value": "#E8F8EE" },
+    { "name": "danger_light", "value": "#FFF0EE" },
+    { "name": "warning_light", "value": "#FFF7E8" },
+    { "name": "info_light", "value": "#F0F7FF" },
+    { "name": "warning_tip_bg", "value": "#FFFBF0" },
+    { "name": "success_bg", "value": "#F0FDF4" },
+    { "name": "danger_bg", "value": "#FFF5F5" },
+    { "name": "success_border", "value": "#BBF7D0" },
+    { "name": "danger_border", "value": "#FED7D7" },
+    { "name": "danger_border_light", "value": "#FFE0E0" },
+    { "name": "purple", "value": "#AF52DE" },
+    { "name": "mask_50", "value": "#80000000" },
+    { "name": "mask_80", "value": "#CC000000" },
+    { "name": "toast_bg", "value": "#CC333333" },
+    { "name": "success_bright", "value": "#4ADE80" },
+    { "name": "danger_bright", "value": "#FCA5A5" },
+    { "name": "warning_bright", "value": "#FCD34D" },
+    { "name": "text_muted", "value": "#C0C0C0" },
+    { "name": "text_on_dark", "value": "#FFFFFFCC" }
   ]
 }

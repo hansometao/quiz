@@ -57,10 +57,10 @@ export struct OptionItem {
 
   private getBgColor(): ResourceColor {
     if (!this.submitted) {
-      return this.selected ? '#E8F2FF' : $r('app.color.bg_card');
+      return this.selected ? $r('app.color.primary_light') : $r('app.color.bg_card');
     }
-    if (this.isCorrect) return '#E8F8EE';
-    if (this.selected && !this.isCorrect) return '#FFF0EE';
+    if (this.isCorrect) return $r('app.color.success_light');
+    if (this.selected && !this.isCorrect) return $r('app.color.danger_light');
     return $r('app.color.bg_card');
   }
 
@@ -121,7 +121,7 @@ export struct QuestionCard {
         Text(QuizEngine.typeLabel(this.question.type))
           .fontSize(12)
           .fontColor($r('app.color.primary'))
-          .backgroundColor('#E8F2FF')
+          .backgroundColor($r('app.color.primary_light'))
           .padding({ left: 8, right: 8, top: 3, bottom: 3 })
           .borderRadius(4)
 
@@ -178,7 +178,7 @@ export struct QuestionCard {
         }
         .width('100%')
         .padding(12)
-        .backgroundColor('#F0F7FF')
+        .backgroundColor($r('app.color.info_light'))
         .borderRadius(8)
       }
     }
@@ -331,9 +331,9 @@ export struct QuestionCard {
 
   private getDifficultyBg(): ResourceColor {
     switch (this.question.difficulty) {
-      case 1: return '#E8F8EE';
-      case 3: return '#FFF0EE';
-      default: return '#FFF7E8';
+      case 1: return $r('app.color.success_light');
+      case 3: return $r('app.color.danger_light');
+      default: return $r('app.color.warning_light');
     }
   }
 }
