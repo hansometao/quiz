@@ -3,10 +3,16 @@
   "version": "1.0.0",
   "description": "鸿蒙题库练习 App - 完全离线本地运行",
   "main": "",
+  "scripts": {
+    "test": "vitest run"
+  },
   "author": "",
   "license": "MIT",
   "dependencies": {},
-  "devDependencies": {},
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "vitest": "^5.0.0"
+  },
   "ohos": {
     "org": "huawei",
     "studioManifest": {

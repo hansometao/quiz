@@ -13,6 +13,26 @@ import common from '@ohos.app.ability.common';
 import { DatabaseService } from './DatabaseService';
 import { QuestionBank, Question, PracticeSession, AnswerRecord, MistakeItem } from '../model/Models';
 
+/** 分批并发上限：题库/会话数极大时避免一次性发起全量并发请求 */
+const BATCH_CONCURRENCY = 8;
+
+/**
+ * 按批次并发执行异步任务，保持结果顺序与输入一致。
+ * collectBackupData 用它替代全量 Promise.all，题库/会话数很大时
+ * 限制同时挂起的请求数，降低内存与调度压力。
+ */
+async function mapBatched<T, R>(items: T[], fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  for (let start = 0; start < items.length; start += BATCH_CONCURRENCY) {
+    const batch = items.slice(start, start + BATCH_CONCURRENCY);
+    const batchResults = await Promise.all(batch.map(fn));
+    for (let i = 0; i < batchResults.length; i++) {
+      results[start + i] = batchResults[i];
+    }
+  }
+  return results;
+}
+
 /** 备份文件的顶层数据结构 */
 interface BackupData {
   version: number;
@@ -42,27 +62,25 @@ export class BackupService {
   // ─────────────────── 导出备份 ───────────────────
 
   /**
-   * 将全量数据序列化为 JSON，保存到沙盒，返回文件路径
-   * 并行拉取各题库题目与各会话答题记录，提升多题库场景下的导出速度。
+   * 汇集全量数据（题库/题目/会话/答题记录/错题）。
+   * exportBackup 与 createSnapshot 共用，避免组装逻辑重复。
    */
-  async exportBackup(ctx: common.UIAbilityContext): Promise<string> {
+  private async collectBackupData(): Promise<BackupData> {
     const banks    = await this.db.banks.getAll();
     const sessions = await this.db.sessions.getAll();
     const mistakes = await this.db.mistakes.getAll();
 
-    // 并行拉取各题库的题目（不传 limit，避免硬编码截断）
-    const questionGroups = await Promise.all(
-      banks.filter(b => b.id !== undefined).map(b => this.db.questions.getByBank(b.id))
-    );
+    // 分批并发拉取各题库的题目（不传 limit，避免硬编码截断）
+    const validBanks = banks.filter(b => b.id !== undefined);
+    const questionGroups = await mapBatched(validBanks, b => this.db.questions.getByBank(b.id!));
     const questions: Question[] = questionGroups.flat();
 
-    // 并行拉取各会话的答题记录
-    const answerGroups = await Promise.all(
-      sessions.filter(s => s.id !== undefined).map(s => this.db.sessions.getAnswersBySession(s.id))
-    );
+    // 分批并发拉取各会话的答题记录
+    const validSessions = sessions.filter(s => s.id !== undefined);
+    const answerGroups = await mapBatched(validSessions, s => this.db.sessions.getAnswersBySession(s.id!));
     const answerRecords: AnswerRecord[] = answerGroups.flat();
 
-    const data: BackupData = {
+    return {
       version:     1,
       exportTime:  new Date().toISOString(),
       banks,
@@ -71,6 +89,13 @@ export class BackupService {
       answerRecords,
       mistakes,
     };
+  }
+
+  /**
+   * 将全量数据序列化为 JSON，保存到沙盒，返回文件路径
+   */
+  async exportBackup(ctx: common.UIAbilityContext): Promise<string> {
+    const data = await this.collectBackupData();
 
     const json     = JSON.stringify(data);
     const fileName = 'quiz_backup_' + this.dateTag() + '.quizbackup';
@@ -240,22 +265,8 @@ export class BackupService {
    */
   private async createSnapshot(ctx: common.UIAbilityContext): Promise<string> {
     const snapshotPath = ctx.cacheDir + '/pre_restore_snapshot.quizbackup';
-    const banks    = await this.db.banks.getAll();
-    const sessions = await this.db.sessions.getAll();
-    const mistakes = await this.db.mistakes.getAll();
-    const questionGroups = await Promise.all(
-      banks.filter(b => b.id !== undefined).map(b => this.db.questions.getByBank(b.id))
-    );
-    const questions: Question[] = questionGroups.flat();
-    const answerGroups = await Promise.all(
-      sessions.filter(s => s.id !== undefined).map(s => this.db.sessions.getAnswersBySession(s.id))
-    );
-    const answerRecords: AnswerRecord[] = answerGroups.flat();
+    const data = await this.collectBackupData();
 
-    const data: BackupData = {
-      version: 1, exportTime: new Date().toISOString(),
-      banks, questions, sessions, answerRecords, mistakes,
-    };
     const json = JSON.stringify(data);
     const file = await fs.open(snapshotPath, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
     try {

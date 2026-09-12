@@ -164,7 +164,9 @@ export class DatabaseService {
         securityLevel: relationalStore.SecurityLevel.S1,
       };
       const store = await relationalStore.getRdbStore(context, config);
-      // 开启外键约束：SQLite 默认不启用，未开启则所有 ON DELETE CASCADE 失效
+      // 开启外键约束：SQLite 默认不启用，未开启则所有 ON DELETE CASCADE 失效。
+      // 注意：PRAGMA 作用于单个连接——每次新建 RdbStore（连接）都必须重设；
+      // 当前为单例长连接无问题，若未来改为连接池/多连接，需在每条连接建立时执行
       await store.executeSql('PRAGMA foreign_keys = ON;');
       // 逐条执行 DDL，规避多语句 executeSql 的可移植性风险
       for (const sql of DDL_STATEMENTS) {
