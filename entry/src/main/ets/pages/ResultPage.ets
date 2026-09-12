@@ -44,7 +44,7 @@ struct ResultPage {
       if (session) {
         this.session = session;
       } else if (records.length > 0) {
-        // 兕底：session 记录缺失，根据答题记录推算
+        // 兜底：session 记录缺失，根据答题记录推算
         const correct = records.filter(r => r.isCorrect === AnswerStatus.CORRECT).length;
         const score = records.reduce((sum, r) => sum + (r.isCorrect === AnswerStatus.CORRECT ? (r.question?.score ?? 1) : 0), 0);
         const times = records.map(r => r.answeredAt);

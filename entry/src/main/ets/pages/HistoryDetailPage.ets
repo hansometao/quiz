@@ -45,7 +45,7 @@ struct HistoryDetailPage {
       if (session) {
         this.session = session;
       } else if (records.length > 0) {
-        // 兕底：session 记录缺失，根据答题记录手动组装
+        // 兜底：session 记录缺失，根据答题记录手动组装
         const correctCnt = records.filter(r => r.isCorrect === AnswerStatus.CORRECT).length;
         // 时长用首末答题时间差（与 ResultPage.calcDuration 算法保持一致）
         const times = records.map(r => r.answeredAt);
