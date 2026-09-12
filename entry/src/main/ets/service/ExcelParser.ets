@@ -4,6 +4,10 @@ import { parseXml, findFirst, findAll, findAllDeep } from '../utils/XmlParser';
 import { Question, QuestionType, Difficulty } from '../model/Models';
 
 const TAG = 'ExcelParser';
+// 防御上限：异常/恶意文件可能携带超大 r 属性（如 r="XFD1048576"），
+// 触发巨量空数组预分配导致内存暴涨
+const MAX_SHEET_ROWS = 100000;
+const MAX_SHEET_COLS = 256;
 
 export interface ParseResult {
   questions: Partial<Question>[];
@@ -30,15 +34,27 @@ const FIELD_KEYWORDS: Record<string, string[]> = {
   score:       ['分值', 'score', '分数', '配分'],
 };
 
-/** 题型文字 → QuestionType */
-function parseType(s: string): QuestionType {
+/**
+ * 表头是否命中关键词。
+ * 'no' 作为子串过于贪婪（'Notes'/'Annotation' 均会命中而误配到 seqNo），
+ * 要求其独立成词（前后为词边界，如 'No.'/'Question No' 可命中）。
+ */
+function matchesKeyword(header: string, kw: string): boolean {
+  if (!header.includes(kw)) return false;
+  if (kw === 'no') return /\bno\b/.test(header);
+  return true;
+}
+
+/** 题型文字 → QuestionType；非空但无法识别时返回 null（由调用方提示并兜底） */
+function parseType(s: string): QuestionType | null {
   const t = s.toLowerCase().trim();
+  if (!t) return QuestionType.SINGLE; // 列缺失/为空按默认单选，不提示
   if (t === 'single' || t.includes('单选')) return QuestionType.SINGLE;
   if (t === 'multi'  || t.includes('多选')) return QuestionType.MULTI;
   if (t === 'judge'  || t.includes('判断')) return QuestionType.JUDGE;
   if (t === 'fill'   || t.includes('填空')) return QuestionType.FILL;
   if (t === 'essay'  || t.includes('简答') || t.includes('论述')) return QuestionType.ESSAY;
-  return QuestionType.SINGLE; // 默认单选
+  return null;
 }
 
 /** 难度文字 → Difficulty */
@@ -167,6 +183,10 @@ export class ExcelParser {
       const rAttr = row.attrs['r'];
       const rowIdx = rAttr ? parseInt(rAttr) - 1 : rowCounter;
       rowCounter = rowIdx + 1;
+      if (rowIdx < 0 || rowIdx >= MAX_SHEET_ROWS) {
+        // 恶意文件可能写 r="1048576"，按需预分配百万级空行数组
+        throw new Error(`表格行号 ${rowIdx + 1} 超出上限（${MAX_SHEET_ROWS} 行），已中止解析`);
+      }
       while (result.length <= rowIdx) result.push([]);
       const cells = findAll(row, 'c');
       let colCounter = 0;
@@ -174,6 +194,9 @@ export class ExcelParser {
         const ref = cell.attrs['r'] ?? '';
         const { col } = ref ? parseCellRef(ref) : { col: colCounter };
         colCounter = col + 1;
+        if (col < 0 || col >= MAX_SHEET_COLS) {
+          throw new Error(`表格列号 ${col + 1} 超出上限（${MAX_SHEET_COLS} 列），已中止解析`);
+        }
         const type = cell.attrs['t'] ?? '';
         let value = '';
         if (type === 'inlineStr') {
@@ -200,17 +223,32 @@ export class ExcelParser {
   }
 
   // ── 构建字段映射（列索引 → 字段名） ──
+  // 匹配策略（修复短关键词误配，如 'Notes' 命中 'no'、'编号' 抢占复合表头）：
+  // 1) 表头与关键词完全一致 → 直接最高优先；
+  // 2) 其余在所有命中字段中选“最长关键词”者，同分取声明顺序靠前者；
+  // 3) 同一字段仅取首个命中的列（先到先得）。
   private buildFieldMap(headerRow: string[]): Record<string, number> {
     const map: Record<string, number> = {};
     for (let col = 0; col < headerRow.length; col++) {
       const header = headerRow[col].toLowerCase().trim();
       if (!header) continue;
+      let bestField = '';
+      let bestScore = 0;
+      let bestOrder = Number.MAX_SAFE_INTEGER;
+      let order = 0;
       for (const [field, keywords] of Object.entries(FIELD_KEYWORDS)) {
-        if (keywords.some(kw => header.includes(kw))) {
-          if (!(field in map)) map[field] = col;
-          break;
+        for (const kw of keywords) {
+          if (!matchesKeyword(header, kw)) continue;
+          const score = kw.length + (header === kw ? 1000 : 0);
+          if (score > bestScore || (score === bestScore && order < bestOrder)) {
+            bestScore = score;
+            bestField = field;
+            bestOrder = order;
+          }
         }
+        order++;
       }
+      if (bestField && !(bestField in map)) map[bestField] = col;
     }
     return map;
   }
@@ -231,10 +269,22 @@ export class ExcelParser {
       return null;
     }
 
-    const type = parseType(get('type'));
+    // 题型无法识别时提示用户，而非静默按单选处理
+    const rawType = get('type');
+    let type = parseType(rawType);
+    if (type === null) {
+      errors.push(`第 ${lineNo} 行：题型“${rawType}”无法识别，已按单选处理`);
+      type = QuestionType.SINGLE;
+    }
     const difficulty = parseDifficulty(get('difficulty'));
     const scoreStr = get('score');
     const score = scoreStr ? parseFloat(scoreStr) : 1.0;
+
+    const normalizedAnswer = this.normalizeAnswer(answer, type);
+    if (type === QuestionType.JUDGE && this.matchJudgeAnswer(answer.trim()) === null) {
+      // 判断题答案被兜底为“错误”时明确告知，避免用户数据被静默改写
+      errors.push(`第 ${lineNo} 行：判断题答案“${answer.trim()}”无法识别，已按“错误”处理`);
+    }
 
     return {
       type,
@@ -244,7 +294,7 @@ export class ExcelParser {
       optionC:     get('optionC'),
       optionD:     get('optionD'),
       optionE:     get('optionE'),
-      answer:      this.normalizeAnswer(answer, type),
+      answer:      normalizedAnswer,
       explanation: get('explanation'),
       category:    get('category'),
       difficulty,
@@ -252,19 +302,25 @@ export class ExcelParser {
     };
   }
 
+  // ── 判断题答案匹配：返回 '正确'/'错误'，无法识别返回 null ──
+  private matchJudgeAnswer(a: string): '正确' | '错误' | null {
+    // 精确匹配，避免 "不对"/"不正确" 被 includes('对') 误判为正确
+    const lower = a.toLowerCase();
+    const correctSet = ['对', '正确', 't', 'true', '√', '是', 'yes', 'right', 'y', '1'];
+    const wrongSet   = ['错', '错误', 'f', 'false', '×', '否', 'no', 'wrong', 'n', '0'];
+    if (correctSet.includes(lower) || correctSet.includes(a)) return '正确';
+    if (wrongSet.includes(lower) || wrongSet.includes(a)) return '错误';
+    // 含"不"前缀的否定（如"不对""不正确"）判错
+    if (a.startsWith('不')) return '错误';
+    return null;
+  }
+
   // ── 规范化答案格式 ──
   private normalizeAnswer(answer: string, type: QuestionType): string {
     const a = answer.trim();
     if (type === QuestionType.JUDGE) {
-      // 精确匹配，避免 "不对"/"不正确" 被 includes('对') 误判为正确
-      const lower = a.toLowerCase();
-      const correctSet = ['对', '正确', 't', 'true', '√', '是', 'yes', 'right', 'y', '1'];
-      const wrongSet   = ['错', '错误', 'f', 'false', '×', '否', 'no', 'wrong', 'n', '0'];
-      if (correctSet.includes(lower) || correctSet.includes(a)) return '正确';
-      if (wrongSet.includes(lower) || wrongSet.includes(a)) return '错误';
-      // 含"不"前缀的否定（如"不对""不正确"）判错
-      if (a.startsWith('不')) return '错误';
-      return '错误';
+      // 无法识别的答案兜底为“错误”，调用方（parseRow）会记录提示
+      return this.matchJudgeAnswer(a) ?? '错误';
     }
     if (type === QuestionType.MULTI) {
       // 去除常见分隔符（含中文顿号、分号、斜杠）后大写，如 "A、B,D" → "ABD"
