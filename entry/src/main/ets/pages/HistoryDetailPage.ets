@@ -1,3 +1,11 @@
+/**
+ * HistoryDetailPage.ets
+ * 历史练习详情页
+ *   - 展示单次练习的全部答题记录
+ *   - 正确/错误高亮
+ *   - 可查看每题解析
+ */
+
 import router from '@ohos.router';
 import { DatabaseService } from '../service/DatabaseService';
 import { AnswerRecord, PracticeSession, AnswerStatus, PracticeMode, SessionStatus } from '../model/Models';
