@@ -147,6 +147,8 @@ struct ImportPage {
       await this.parseFile(filePath);
     } catch (e) {
       console.error('选文件失败', e);
+      // L-9：选择器异常需给用户提示（用户取消选择不算失败，静默即可）
+      promptAction.showToast({ message: '选择文件失败，请重试' });
     }
   }
 

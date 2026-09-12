@@ -143,7 +143,7 @@ struct QuizPage {
             Text('✕').fontSize(16).fontColor($r('app.color.text_secondary'))
           }
           .width(36).height(36).backgroundColor(Color.Transparent)
-          .onClick(() => this.onExit())
+          .onClick(() => this.confirmExit())
 
           Blank()
 
@@ -243,6 +243,8 @@ struct QuizPage {
   }
 
   private async submit(): Promise<void> {
+    // H-2 防御：finishQuiz 进行中禁止再提交答题，避免双写
+    if (this.isFinishing) return;
     if (this.sessionId === 0) return;
     if (!this.currentQuestion) return;
     if (this.skippedIndices.indexOf(this.currentIdx) >= 0) return;
@@ -361,7 +363,41 @@ struct QuizPage {
     }
   }
 
+  /**
+   * M-1：退出前确认——已答至少一题时弹确认框，防止误触 ✕ 丢弃整场练习；
+   * 未答任何题（或已提交当前题且无历史作答）时直接退出，不打扰。
+   */
+  private confirmExit(): void {
+    // H-2 防御：finishQuiz 进行中不允许再走退出流程
+    if (this.isFinishing) return;
+    const answered = [...this.submitted.values()].filter(Boolean).length
+      + this.skippedIndices.filter(i => !this.submitted.get(i)).length;
+    if (answered === 0) {
+      this.onExit();
+      return;
+    }
+    this.getUIContext().showAlertDialog({
+      title: '退出练习？',
+      message: `已作答 ${answered} 题，退出后本次练习将标记为已放弃，进度不会保存。`,
+      autoCancel: true,
+      alignment: DialogAlignment.Center,
+      primaryButton: {
+        value: '继续答题',
+        action: () => {},
+      },
+      secondaryButton: {
+        value: '退出',
+        fontColor: $r('app.color.danger'),
+        action: () => this.onExit(),
+      },
+    });
+  }
+
   private async onExit(): Promise<void> {
+    // H-2 防御：finishQuiz（限时到点）已触发后，到点与用户点 ✕ 存在竞态——
+    // 此时 sessionId 对应的会话已置 COMPLETED，再 abandon 会把已完成会话
+    // 污染为 ABANDONED（结果页与历史记录互相矛盾），必须直接返回
+    if (this.isFinishing) return;
     this.clearTimer();
     if (this.sessionId > 0) {
       try {

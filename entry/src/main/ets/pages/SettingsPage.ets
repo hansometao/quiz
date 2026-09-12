@@ -27,6 +27,8 @@ export struct SettingsPage {
   private isAlive: boolean = true;
   // save 防抖计时器：Slider 拖动时高频触发 onChange，防抖避免每 tick 都 flush 持久化
   private saveDebounceTimer: number = -1;
+  // L-8：toast 定时器句柄（与 BankDetailPage 同款互斥逻辑）
+  private toastTimer: number = -1;
 
   aboutToAppear() {
     this.loadPrefs();
@@ -34,6 +36,9 @@ export struct SettingsPage {
 
   aboutToDisappear() {
     this.isAlive = false;
+    // L-7：页面销毁时清理在途定时器，防止销毁后回调仍执行
+    if (this.saveDebounceTimer >= 0) { clearTimeout(this.saveDebounceTimer); this.saveDebounceTimer = -1; }
+    if (this.toastTimer >= 0) { clearTimeout(this.toastTimer); this.toastTimer = -1; }
   }
 
   async loadPrefs() {
@@ -42,6 +47,9 @@ export struct SettingsPage {
       this.pref = await preferences.getPreferences(ctx, PREF_NAME);
       if (!this.isAlive) return;
       this.fontSize            = await this.pref.get('fontSize',          1)     as number;
+      // M-14：启动时把持久化的字体档位同步到 AppStorage，QuestionCard 通过
+      // @StorageProp 消费；应用入口（EntryAbility）若先加载页面也已覆盖
+      AppStorage.setOrCreate('fontScale', this.fontSize);
       this.soundEnabled        = await this.pref.get('soundEnabled',      true)  as boolean;
       this.vibrationEnabled    = await this.pref.get('vibrationEnabled',  true)  as boolean;
       if (!this.isAlive) return;
@@ -71,7 +79,12 @@ export struct SettingsPage {
   showMsg(msg: string) {
     this.toastMsg = msg;
     this.showToast = true;
-    setTimeout(() => { if (this.isAlive) this.showToast = false; }, 2500);
+    // L-8：timer 句柄互斥——连续 showMsg 时先清旧定时器，避免前一个提前关掉后一个
+    if (this.toastTimer >= 0) clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => {
+      if (this.isAlive) this.showToast = false;
+      this.toastTimer = -1;
+    }, 2500);
   }
 
   // ── 导出备份 ──
@@ -94,6 +107,28 @@ export struct SettingsPage {
   }
 
   // ── 导入还原 ──
+  /**
+   * M-9：还原是覆盖性破坏操作，先弹确认框（提示已自动快照可回滚），
+   * 用户确认后才进入文件选择与还原流程
+   */
+  confirmImport(): void {
+    this.getUIContext().showAlertDialog({
+      title: '导入还原？',
+      message: '将用备份文件覆盖当前全部数据（题库/练习记录/错题本）。',
+      autoCancel: true,
+      alignment: DialogAlignment.Center,
+      primaryButton: {
+        value: '取消',
+        action: () => {},
+      },
+      secondaryButton: {
+        value: '继续导入',
+        fontColor: $r('app.color.danger'),
+        action: () => this.doImport(),
+      },
+    });
+  }
+
   async doImport() {
     if (this.importing) return;
     this.importing = true;
@@ -164,7 +199,12 @@ export struct SettingsPage {
               .padding({ left: 16, right: 16, top: 12, bottom: 8 })
               Slider({ value: this.fontSize, min: 0, max: 2, step: 1 })
                 .padding({ left: 16, right: 16, bottom: 12 })
-                .onChange((v) => { this.fontSize = Math.round(v); this.saveDebounced('fontSize', Math.round(v)); })
+                .onChange((v) => {
+                  this.fontSize = Math.round(v);
+                  this.saveDebounced('fontSize', Math.round(v));
+                  // M-14：同步 AppStorage，让所有已打开页面的 QuestionCard 即时生效
+                  AppStorage.setOrCreate('fontScale', Math.round(v));
+                })
             }
             .backgroundColor($r('app.color.bg_card')).borderRadius(10).margin({ bottom: 8 })
 
@@ -189,9 +229,14 @@ export struct SettingsPage {
                 .padding({ left: 16, right: 16, bottom: 12 })
                 .onChange((v) => {
                   this.autoRemoveThreshold = Math.round(v);
+                  // M-15 修复：拖动后直接返回页面时 onSubmit 不会触发，
+                  // 原先只在 onSubmit 持久化会导致修改静默丢失；
+                  // 改为 onChange 防抖持久化（拖动中每 tick 只重置定时器，
+                  // 停止拖动 400ms 后落库），aboutToDisappear 时再 flush 一次
+                  this.saveDebounced('autoRemoveThreshold', Math.round(v));
                 })
                 .onSubmit(() => {
-                  // 拖动结束时才持久化，避免拖动过程中每 tick 都写 DB
+                  // 拖动结束时立即持久化（滑块松手即触发），不走防抖等待
                   DatabaseService.getInstance().syncAutoRemoveThreshold(this.autoRemoveThreshold);
                 })
             }
@@ -234,7 +279,7 @@ export struct SettingsPage {
                 }
               }
               .padding({ left: 16, right: 16, top: 14, bottom: 14 })
-              .onClick(() => this.doImport())
+              .onClick(() => this.confirmImport())
 
               Divider().color($r('app.color.border')).margin({ left: 16 })
 

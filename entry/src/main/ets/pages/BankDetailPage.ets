@@ -33,6 +33,11 @@ struct BankDetailPage {
   @State showNoteDialog: boolean = false;
   @State toastMsg: string = '';
   @State showToast: boolean = false;
+  // H-3：列表加载失败标记——失败不能伪装成"暂无题目"空态，需显示错误态+重试
+  @State loadError: boolean = false;
+  // L-8：toast 定时器句柄——连续 showMsg 时先清掉旧定时器，
+  // 避免前一个 setTimeout 把后一个 toast 提前关掉
+  private toastTimer: number = -1;
 
   private ds: ArrayDataSource<Question> = new ArrayDataSource<Question>();
   private page: number = 0;
@@ -55,6 +60,7 @@ struct BankDetailPage {
       this.hasMore = true;
       this.loading = true;
       this.ds.clear();
+      this.loadError = false;  // H-3：新一轮加载清掉上一次的错误态
       this.loadGen++;  // 新一轮筛选，作废所有在途的旧请求
     } else {
       // 追加加载并发守卫：防止上拉/点击双触发导致同一页数据重复追加
@@ -88,6 +94,14 @@ struct BankDetailPage {
       this.page++;
     } catch (e) {
       console.error('加载题目失败', e);
+      // H-3：加载失败显式标记（首屏失败才置错误态；分页失败保留已加载内容仅提示）
+      if (myGen === this.loadGen) {
+        if (this.ds.totalCount() === 0) {
+          this.loadError = true;
+        } else {
+          this.showMsg('加载更多失败，请重试');
+        }
+      }
     } finally {
       // 仅当本次请求仍是最新代际时才释放遮罩，避免被后续请求的 loading 覆盖
       if (myGen === this.loadGen) {
@@ -147,7 +161,11 @@ struct BankDetailPage {
   showMsg(msg: string) {
     this.toastMsg = msg;
     this.showToast = true;
-    setTimeout(() => { if (this.isAlive) this.showToast = false; }, 2000);
+    if (this.toastTimer >= 0) clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => {
+      if (this.isAlive) this.showToast = false;
+      this.toastTimer = -1;
+    }, 2000);
   }
 
   build() {
@@ -216,6 +234,15 @@ struct BankDetailPage {
         // ── 题目列表 ──
         if (this.loading) {
           Blank().layoutWeight(1)
+        } else if (this.loadError) {
+          // H-3：加载失败与空数据区分展示，失败给重试入口
+          EmptyState({
+            icon: '⚠️',
+            title: '加载失败',
+            subtitle: '网络或数据库异常，请重试',
+            actionText: '重新加载',
+            onAction: () => this.loadData(true),
+          })
         } else if (this.ds.totalCount() === 0) {
           EmptyState({
             icon: '📋',

@@ -107,6 +107,20 @@ export struct QuestionCard {
   @Prop submitted: boolean;         // 是否已提交
   onAnswerChange: (answer: string) => void = () => {};
 
+  // M-14：全局字体档位（0=小 1=中 2=大），由 SettingsPage 写入 AppStorage；
+  // @StorageProp 双向感知：设置页调整后所有已打开的 QuestionCard 即时生效
+  @StorageProp('fontScale') fontScale: number = 1;
+
+  // 字体档位 → 题干字号（基础 16）：小 14 / 中 16 / 大 18
+  private get questionFontSize(): number {
+    return [14, 16, 18][this.fontScale] ?? 16;
+  }
+
+  // 字体档位 → 选项/输入字号（基础 15）：小 13 / 中 15 / 大 17
+  private get optionFontSize(): number {
+    return [13, 15, 17][this.fontScale] ?? 15;
+  }
+
   @State fillInput: string = '';
 
   // 切题时同步已存的填空答案，避免残留上一题输入且不回显已答内容
@@ -148,9 +162,8 @@ export struct QuestionCard {
 
       // 题干
       Text(this.question.question)
-        .fontSize(16)
-        .fontColor($r('app.color.text_primary'))
-        .lineHeight(24)
+        .fontSize(this.questionFontSize)
+        .lineHeight(this.questionFontSize + 8)
         .width('100%')
         .margin({ bottom: 18 })
 
@@ -208,7 +221,7 @@ export struct QuestionCard {
       Button('✓ 正确')
         .layoutWeight(1)
         .height(44)
-        .fontSize(15)
+        .fontSize(this.optionFontSize)
         .borderRadius(10)
         .backgroundColor(this.judgeButtonBg('正确'))
         .fontColor(this.judgeButtonTextColor('正确'))
@@ -218,7 +231,7 @@ export struct QuestionCard {
       Button('✗ 错误')
         .layoutWeight(1)
         .height(44)
-        .fontSize(15)
+        .fontSize(this.optionFontSize)
         .borderRadius(10)
         .backgroundColor(this.judgeButtonBg('错误'))
         .fontColor(this.judgeButtonTextColor('错误'))
@@ -235,7 +248,7 @@ export struct QuestionCard {
           this.onAnswerChange(v);
         })
         .enabled(!this.submitted)
-        .fontSize(15)
+        .fontSize(this.optionFontSize)
         .height(48)
         .borderRadius(8)
       if (this.submitted) {

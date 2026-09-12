@@ -25,6 +25,12 @@ struct HistoryDetailPage {
   // 标记页面是否已销毁，所有 await 后必须检查，避免在销毁组件上写状态
   private isAlive: boolean = true;
 
+  // 错误数 = 总数 - 正确数（跳过/待核题不计入正确，但计入题目数；
+  // 与 ResultPage 口径一致：明细列表只区分 ✓/✗ 两态）
+  private get wrongCount(): number {
+    return this.records.filter(r => r.isCorrect !== AnswerStatus.CORRECT).length;
+  }
+
   aboutToAppear() { this.loadData(); }
 
   aboutToDisappear() {
