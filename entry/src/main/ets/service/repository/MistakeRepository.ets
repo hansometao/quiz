@@ -21,12 +21,13 @@ export class MistakeRepository {
       `INSERT INTO mistakes (question_id, bank_id, wrong_count, consecutive_correct, my_last_answer, last_practice_time, added_at, updated_at)
        VALUES (?, ?, 1, 0, ?, ?, ?, ?)
        ON CONFLICT(question_id) DO UPDATE SET
+         bank_id = ?,
          wrong_count = wrong_count + 1,
          consecutive_correct = 0,
          my_last_answer = ?,
          last_practice_time = ?,
          updated_at = ?`,
-      [questionId, bankId, myAnswer, now, now, now, myAnswer, now, now]
+      [questionId, bankId, myAnswer, now, now, now, bankId, myAnswer, now, now]
     );
   }
 

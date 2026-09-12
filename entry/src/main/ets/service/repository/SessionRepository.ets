@@ -58,7 +58,8 @@ export class SessionRepository {
                LEFT JOIN question_banks b ON b.id = s.bank_id
                WHERE s.status = ?`;
     const args: relationalStore.ValueType[] = [SessionStatus.COMPLETED];
-    if (bankId !== undefined) {
+    if (bankId !== undefined && bankId > 0) {
+      // bankId <= 0 视为“全部题库”（与 MistakeRepository 口径一致），避免查到空集
       sql += ` AND s.bank_id = ?`;
       args.push(bankId);
     }

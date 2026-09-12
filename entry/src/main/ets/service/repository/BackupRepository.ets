@@ -16,6 +16,12 @@ export interface RestoreResult {
 export class BackupRepository {
   constructor(private store: relationalStore.RdbStore) {}
 
+  /** 校验备份中的主键 id：缺 id/非法 id 会导致外键关联错乱或插入 NULL 失败 */
+  private requireId(id: number | undefined, kind: string): number {
+    if (typeof id === 'number' && Number.isFinite(id) && id > 0) return id;
+    throw new Error(`备份数据中${kind}缺少有效的 id`);
+  }
+
   /** 全量还原（覆盖模式：先清空再插入，事务保证原子性） */
   async restore(banks: Partial<QuestionBank>[], questions: Partial<Question>[],
                 sessions: Partial<PracticeSession>[], records: Partial<AnswerRecord>[],
@@ -39,7 +45,7 @@ export class BackupRepository {
 
       for (const b of banks) {
         const values: relationalStore.ValuesBucket = {
-          id: b.id, name: b.name ?? '', description: b.description ?? '',
+          id: this.requireId(b.id, '题库'), name: b.name ?? '', description: b.description ?? '',
           file_name: b.fileName ?? '', total_count: b.totalCount ?? 0,
           created_at: b.createdAt ?? 0, updated_at: b.updatedAt ?? 0,
         };
@@ -49,8 +55,8 @@ export class BackupRepository {
 
       for (const q of questions) {
         const values: relationalStore.ValuesBucket = {
-          id: q.id,
-          // NOT NULL 列必须显式兜底，undefined 会写 NULL 而非触发 DEFAULT
+          id: this.requireId(q.id, '题目'),
+          // NOT NULL 列必须显式兑底，undefined 会写 NULL 而非触发 DEFAULT
           bank_id: q.bankId ?? 0, seq_no: q.seqNo ?? 0,
           type: q.type ?? QuestionType.SINGLE, question: q.question ?? '',
           option_a: q.optionA ?? '', option_b: q.optionB ?? '', option_c: q.optionC ?? '',
@@ -67,7 +73,7 @@ export class BackupRepository {
 
       for (const s of sessions) {
         const values: relationalStore.ValuesBucket = {
-          id: s.id,
+          id: this.requireId(s.id, '练习会话'),
           bank_id: s.bankId ?? 0, mode: s.mode ?? PracticeMode.RANDOM,
           config_json: s.configJson ?? '', total_count: s.totalCount ?? 0,
           correct_count: s.correctCount ?? 0, duration_sec: s.durationSec ?? 0,
@@ -80,7 +86,7 @@ export class BackupRepository {
 
       for (const r of records) {
         const values: relationalStore.ValuesBucket = {
-          id: r.id,
+          id: this.requireId(r.id, '答题记录'),
           session_id: r.sessionId ?? 0, question_id: r.questionId ?? 0,
           user_answer: r.userAnswer ?? '', is_correct: r.isCorrect ?? 0,
           time_spent_ms: r.timeSpentMs ?? 0, answered_at: r.answeredAt ?? 0,
