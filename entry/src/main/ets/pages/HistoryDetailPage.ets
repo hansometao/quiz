@@ -1,11 +1,3 @@
-/**
- * HistoryDetailPage.ets
- * 历史练习详情页
- *   - 展示单次练习的全部答题记录
- *   - 正确/错误高亮
- *   - 可查看每题解析
- */
-
 import router from '@ohos.router';
 import { DatabaseService } from '../service/DatabaseService';
 import { AnswerRecord, PracticeSession, AnswerStatus, PracticeMode, SessionStatus } from '../model/Models';
@@ -45,7 +37,7 @@ struct HistoryDetailPage {
       if (session) {
         this.session = session;
       } else if (records.length > 0) {
-        // 兜底：session 记录缺失，根据答题记录手动组装
+        // 兕底：session 记录缺失，根据答题记录手动组装
         const correctCnt = records.filter(r => r.isCorrect === AnswerStatus.CORRECT).length;
         // 时长用首末答题时间差（与 ResultPage.calcDuration 算法保持一致）
         const times = records.map(r => r.answeredAt);
