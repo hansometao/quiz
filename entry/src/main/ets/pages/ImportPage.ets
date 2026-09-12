@@ -112,7 +112,7 @@ struct ImportPage {
             Text(`还有 ${this.result!.errors.length - 10} 个问题...`).fontSize(12).fontColor($r('app.color.text_tertiary'))
           }
         }
-        .width('100%').padding(10).backgroundColor('#FFFBF0').borderRadius(8).margin({ bottom: 12 })
+        .width('100%').padding(10).backgroundColor($r('app.color.warning_tip_bg')).borderRadius(8).margin({ bottom: 12 })
       }
 
       if (this.result!.successCount > 0) {

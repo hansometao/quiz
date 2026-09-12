@@ -87,7 +87,7 @@ export struct MistakePage {
                       Text(QuizEngine.typeLabel(m.question.type))
                         .fontSize(11).fontColor($r('app.color.primary'))
                         .padding({ left: 6, right: 6, top: 2, bottom: 2 })
-                        .backgroundColor('#E8F2FF').borderRadius(4)
+                        .backgroundColor($r('app.color.primary_light')).borderRadius(4)
                       if (m.question.category) {
                         Text(m.question.category)
                           .fontSize(11).fontColor($r('app.color.text_secondary'))

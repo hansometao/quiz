@@ -179,10 +179,10 @@ export struct AnalysisPage {
           Column() {
             // 综合统计卡片
             Grid() {
-              GridItem() { this.StatCard('练习次数', String(this.overall.totalSessions), '次', '#0A84FF') }
-              GridItem() { this.StatCard('作答题目', String(this.overall.totalQuestions), '题', '#34C759') }
-              GridItem() { this.StatCard('平均正确率', (isNaN(this.overall.avgCorrectRate) ? 0 : Math.round(this.overall.avgCorrectRate * 100)) + '', '%', '#FF9500') }
-              GridItem() { this.StatCard('总用时', DateUtils.formatDurationLabel(this.overall.totalDurationSec), '', '#AF52DE') }
+              GridItem() { this.StatCard('练习次数', String(this.overall.totalSessions), '次', $r('app.color.primary')) }
+              GridItem() { this.StatCard('作答题目', String(this.overall.totalQuestions), '题', $r('app.color.success')) }
+              GridItem() { this.StatCard('平均正确率', (isNaN(this.overall.avgCorrectRate) ? 0 : Math.round(this.overall.avgCorrectRate * 100)) + '', '%', $r('app.color.warning')) }
+              GridItem() { this.StatCard('总用时', DateUtils.formatDurationLabel(this.overall.totalDurationSec), '', $r('app.color.purple')) }
             }
             .columnsTemplate('1fr 1fr')
             .rowsGap(10).columnsGap(10)
@@ -250,7 +250,7 @@ export struct AnalysisPage {
     }
   }
 
-  @Builder StatCard(label: string, value: string, unit: string, color: string) {
+  @Builder StatCard(label: string, value: string, unit: string, color: ResourceColor) {
     Column() {
       Row() {
         Text(value).fontSize(24).fontWeight(FontWeight.Bold).fontColor(color)

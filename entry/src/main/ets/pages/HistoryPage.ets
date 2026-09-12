@@ -79,7 +79,7 @@ export struct HistoryPage {
                     Text(QuizEngine.modeLabel(s.mode))
                       .fontSize(12).fontColor($r('app.color.primary'))
                       .padding({ left: 6, right: 6, top: 2, bottom: 2 })
-                      .backgroundColor('#E8F2FF').borderRadius(4)
+                      .backgroundColor($r('app.color.primary_light')).borderRadius(4)
                     Text('  ' + s.totalCount + ' 题')
                       .fontSize(12).fontColor($r('app.color.text_secondary'))
                     Text('  用时 ' + DateUtils.formatDuration(s.durationSec))
