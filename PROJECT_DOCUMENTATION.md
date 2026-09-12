@@ -400,7 +400,6 @@ quiz-harmony/
 | --- | --- |
 | `buildQuestionList(bankId, config)` | 根据配置出题：MISTAKE 模式取错题本；其他模式取题库（带筛选）；RANDOM/EXAM 模式 Fisher-Yates 打乱；按 totalCount 截断 |
 | `checkAnswer(question, userAnswer)` | 判题：SINGLE/JUDGE 全等；MULTI 字母排序比较；FILL 关键词全部包含；ESSAY 不自动判（返回 false）|
-| `scoreFillAnswer(userAnswer, correctAnswer)` | 填空题部分给分（匹配关键词比例，0~1）|
 | `static difficultyLabel(d)` | 难度 → 中文（简单/中等/困难）|
 | `static typeLabel(t)` | 题型 → 中文（单选题/多选题/...）|
 | `static modeLabel(m)` | 模式 → 中文（顺序练习/随机练习/...）|
