@@ -11,7 +11,7 @@ import { DateUtils } from '../utils/DateUtils';
 @Component
 struct QuizPage {
   private bankId: number = (router.getParams() as Record<string, number> | null)?.['bankId'] ?? 0;
-  // config 解析失败/字段缺失时统一走 normalizePracticeConfig 兜底，避免非法 JSON 或旧版备份导致 QuizEngine 崩溃
+  // config 解析失败/字段缺失时统一走 normalizePracticeConfig 兕底，避免非法 JSON 或旧版备份导致 QuizEngine 崩溃
   private config: PracticeConfig = (() => {
     try {
       const raw = JSON.parse((router.getParams() as Record<string, string> | null)?.['config'] ?? '{}') as Partial<PracticeConfig>;
@@ -55,9 +55,10 @@ struct QuizPage {
     this.clearTimer();
   }
 
-  // 页面恢复可见时基于墙钟校正 elapsed/remaining 后重启定时器
+  // 页面恢复可见时基于墙钟校正 elapsed/remaining 后重启定时器；
+  // isFinishing 守卫：限时到点已触发 finishQuiz 后不再重启定时器，避免到点后切后台再切回时空转计时
   onPageShow() {
-    if (this.sessionId > 0 && !this.loading && this.timer < 0) {
+    if (this.sessionId > 0 && !this.loading && !this.isFinishing && this.timer < 0) {
       this.syncElapsedFromWall();
       this.startTimer();
     }
