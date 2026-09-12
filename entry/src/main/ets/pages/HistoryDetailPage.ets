@@ -94,8 +94,8 @@ struct HistoryDetailPage {
         if (this.session) {
           Row() {
             this.SummaryItem('题目数', String(this.session.totalCount))
-            this.SummaryItem('正确', String(this.session.correctCount), '#34C759')
-            this.SummaryItem('错误', String(this.wrongCount), '#FF3B30')
+            this.SummaryItem('正确', String(this.session.correctCount), $r('app.color.success'))
+            this.SummaryItem('错误', String(this.wrongCount), $r('app.color.danger'))
             this.SummaryItem('正确率', this.rateStr(this.session), this.rateColor(this.session))
           }
           .width('100%').padding({ left: 16, right: 16, bottom: 12 })
@@ -116,7 +116,7 @@ struct HistoryDetailPage {
                       .fontSize(13).fontColor($r('app.color.text_tertiary')).width(28)
                     Text(r.isCorrect === AnswerStatus.CORRECT ? '✓' : '✗')
                       .fontSize(16).fontWeight(FontWeight.Bold)
-                      .fontColor(r.isCorrect === AnswerStatus.CORRECT ? '#34C759' : '#FF3B30')
+                      .fontColor(r.isCorrect === AnswerStatus.CORRECT ? $r('app.color.success') : $r('app.color.danger'))
                       .margin({ right: 8 })
 
                     Text(r.question?.question ?? '')
@@ -135,13 +135,13 @@ struct HistoryDetailPage {
                         Row() {
                           Text('我的答案：').fontSize(13).fontColor($r('app.color.text_secondary'))
                           Text(r.userAnswer || '（未作答）')
-                            .fontSize(13).fontColor('#FF3B30').fontWeight(FontWeight.Medium)
+                            .fontSize(13).fontColor($r('app.color.danger')).fontWeight(FontWeight.Medium)
                         }
                         .margin({ top: 8 })
                       }
                       Row() {
                         Text('正确答案：').fontSize(13).fontColor($r('app.color.text_secondary'))
-                        Text(r.question?.answer ?? '').fontSize(13).fontColor('#34C759').fontWeight(FontWeight.Medium)
+                        Text(r.question?.answer ?? '').fontSize(13).fontColor($r('app.color.success')).fontWeight(FontWeight.Medium)
                       }
                       .margin({ top: 4 })
 
@@ -157,11 +157,11 @@ struct HistoryDetailPage {
                 }
                 .padding(14)
                 .backgroundColor(r.isCorrect === AnswerStatus.CORRECT
-                  ? '#F0FDF4' : '#FFF5F5')
+                  ? $r('app.color.success_bg') : $r('app.color.danger_bg'))
                 .borderRadius(10)
                 .border({
                   width: 1,
-                  color: r.isCorrect === AnswerStatus.CORRECT ? '#BBF7D0' : '#FED7D7',
+                  color: r.isCorrect === AnswerStatus.CORRECT ? $r('app.color.success_border') : $r('app.color.danger_border'),
                 })
                 .onClick(() => {
                   this.expandedId = this.expandedId === r.id ? -1 : r.id;
@@ -178,11 +178,11 @@ struct HistoryDetailPage {
     }
   }
 
-  @Builder SummaryItem(label: string, value: string, color: string = '') {
+  @Builder SummaryItem(label: string, value: string, color: ResourceColor = $r('app.color.text_primary')) {
     Column() {
       Text(value)
         .fontSize(22).fontWeight(FontWeight.Bold)
-        .fontColor(color || $r('app.color.text_primary'))
+        .fontColor(color)
       Text(label)
         .fontSize(12).fontColor($r('app.color.text_secondary')).margin({ top: 2 })
     }
@@ -199,11 +199,11 @@ struct HistoryDetailPage {
     return Math.round(s.correctCount / s.totalCount * 100) + '%';
   }
 
-  private rateColor(s: PracticeSession): string {
-    if (!s.totalCount) return '';
+  private rateColor(s: PracticeSession): ResourceColor {
+    if (!s.totalCount) return $r('app.color.text_primary');
     const r = s.correctCount / s.totalCount;
-    if (r >= 0.8) return '#34C759';
-    if (r >= 0.6) return '#FF9500';
-    return '#FF3B30';
+    if (r >= 0.8) return $r('app.color.success');
+    if (r >= 0.6) return $r('app.color.warning');
+    return $r('app.color.danger');
   }
 }

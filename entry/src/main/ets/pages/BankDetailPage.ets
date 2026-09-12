@@ -177,9 +177,9 @@ struct BankDetailPage {
         // ── 统计卡 ──
         if (this.bank) {
           Row() {
-            this.StatChip('共 ' + this.bank.totalCount + ' 题',          '#0A84FF')
-            this.StatChip('练习 ' + (this.bank.practiceCount ?? 0) + ' 次', '#34C759')
-            this.StatChip('正确率 ' + this.formatRate(this.bank.avgCorrectRate), '#FF9500')
+            this.StatChip('共 ' + this.bank.totalCount + ' 题',          $r('app.color.primary'), $r('app.color.primary_light'))
+            this.StatChip('练习 ' + (this.bank.practiceCount ?? 0) + ' 次', $r('app.color.success'), $r('app.color.success_light'))
+            this.StatChip('正确率 ' + this.formatRate(this.bank.avgCorrectRate), $r('app.color.warning'), $r('app.color.warning_light'))
           }
           .padding({ left: 16, right: 16, bottom: 8 })
         }
@@ -232,7 +232,7 @@ struct BankDetailPage {
                     Text(QuizEngine.typeLabel(q.type))
                       .fontSize(11).fontColor($r('app.color.primary'))
                       .padding({ left: 6, right: 6, top: 2, bottom: 2 })
-                      .backgroundColor('#E8F2FF').borderRadius(4)
+                      .backgroundColor($r('app.color.primary_light')).borderRadius(4)
                     Text(' Q' + q.seqNo)
                       .fontSize(11).fontColor($r('app.color.text_tertiary')).margin({ left: 4 })
                     Blank()
@@ -296,7 +296,7 @@ struct BankDetailPage {
       if (this.showDeleteConfirm && this.selectedQuestion) {
         Stack() {
           Column()
-            .width('100%').height('100%').backgroundColor('#80000000')
+            .width('100%').height('100%').backgroundColor($r('app.color.mask_50'))
             .onClick(() => { this.showDeleteConfirm = false; this.selectedQuestion = null; })
           Column() {
             Text('确认删除').fontSize(17).fontWeight(FontWeight.Bold).margin({ bottom: 8 })
@@ -323,7 +323,7 @@ struct BankDetailPage {
       if (this.showNoteDialog && this.selectedQuestion) {
         Stack() {
           Column()
-            .width('100%').height('100%').backgroundColor('#80000000')
+            .width('100%').height('100%').backgroundColor($r('app.color.mask_50'))
             .onClick(() => { this.showNoteDialog = false; this.selectedQuestion = null; })
           Column() {
             Text('添加笔记').fontSize(17).fontWeight(FontWeight.Bold).margin({ bottom: 12 })
@@ -351,7 +351,7 @@ struct BankDetailPage {
         Text(this.toastMsg)
           .fontSize(14).fontColor(Color.White)
           .padding({ left: 20, right: 20, top: 12, bottom: 12 })
-          .backgroundColor('#CC333333').borderRadius(24)
+          .backgroundColor($r('app.color.toast_bg')).borderRadius(24)
           .position({ x: '10%', y: '82%' }).width('80%').textAlign(TextAlign.Center).zIndex(200)
       }
     }
@@ -370,11 +370,11 @@ struct BankDetailPage {
     }
   }
 
-  @Builder StatChip(text: string, color: string) {
+  @Builder StatChip(text: string, color: ResourceColor, bgColor: ResourceColor) {
     Text(text)
       .fontSize(13).fontColor(color)
       .padding({ left: 10, right: 10, top: 4, bottom: 4 })
-      .backgroundColor(color + '1A')
+      .backgroundColor(bgColor)
       .borderRadius(20).margin({ right: 8 })
   }
 

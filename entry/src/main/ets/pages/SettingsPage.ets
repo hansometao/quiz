@@ -294,7 +294,7 @@ export struct SettingsPage {
       if (this.showConfirmClear) {
         Stack() {
           Column()
-            .width('100%').height('100%').backgroundColor('#80000000')
+            .width('100%').height('100%').backgroundColor($r('app.color.mask_50'))
             .onClick(() => this.showConfirmClear = false)
 
           Column() {
@@ -325,7 +325,7 @@ export struct SettingsPage {
         Text(this.toastMsg)
           .fontSize(14).fontColor(Color.White)
           .padding({ left: 20, right: 20, top: 12, bottom: 12 })
-          .backgroundColor('#CC333333')
+          .backgroundColor($r('app.color.toast_bg'))
           .borderRadius(24)
           .position({ x: '10%', y: '80%' })
           .width('80%')

@@ -92,17 +92,17 @@ struct ResultPage {
 
             Column() {
               Row() {
-                this.ScoreItem(String(this.correctCount),  '正确', '#4ADE80')
-                this.ScoreItem(String(this.wrongCount),    '错误', '#FCA5A5')
-                this.ScoreItem(String(this.skippedCount),  '跳过', '#FCD34D')
+                this.ScoreItem(String(this.correctCount),  '正确', $r('app.color.success_bright'))
+                this.ScoreItem(String(this.wrongCount),    '错误', $r('app.color.danger_bright'))
+                this.ScoreItem(String(this.skippedCount),  '跳过', $r('app.color.warning_bright'))
                 if (this.pendingCount > 0) {
-                  this.ScoreItem(String(this.pendingCount), '待核', '#C0C0C0')
+                  this.ScoreItem(String(this.pendingCount), '待核', $r('app.color.text_muted'))
                 }
               }
               .margin({ bottom: 8 })
 
               Text('用时 ' + DateUtils.formatDuration(this.session?.durationSec ?? (this.records.length > 0 ? this.calcDuration() : 0)))
-                .fontSize(13).fontColor('#FFFFFFCC')
+                .fontSize(13).fontColor($r('app.color.text_on_dark'))
             }
             .margin({ left: 24 })
             .alignItems(HorizontalAlign.Start)
@@ -156,7 +156,7 @@ struct ResultPage {
                 .padding(12)
                 .backgroundColor($r('app.color.bg_card'))
                 .borderRadius(10)
-                .border({ width: 1, color: '#FFE0E0' })
+                .border({ width: 1, color: $r('app.color.danger_border_light') })
               }
             }, (record: AnswerRecord) => record.id.toString())
           }
@@ -170,10 +170,10 @@ struct ResultPage {
     }
   }
 
-  @Builder ScoreItem(value: string, label: string, color: string) {
+  @Builder ScoreItem(value: string, label: string, color: ResourceColor) {
     Column() {
       Text(value).fontSize(20).fontWeight(FontWeight.Bold).fontColor(color)
-      Text(label).fontSize(11).fontColor('#FFFFFFCC').margin({ top: 2 })
+      Text(label).fontSize(11).fontColor($r('app.color.text_on_dark')).margin({ top: 2 })
     }
     .margin({ right: 16 })
   }
