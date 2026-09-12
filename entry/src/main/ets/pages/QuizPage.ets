@@ -11,7 +11,7 @@ import { DateUtils } from '../utils/DateUtils';
 @Component
 struct QuizPage {
   private bankId: number = (router.getParams() as Record<string, number> | null)?.['bankId'] ?? 0;
-  // config 解析失败/字段缺失时统一走 normalizePracticeConfig 兕底，避免非法 JSON 或旧版备份导致 QuizEngine 崩溃
+  // config 解析失败/字段缺失时统一走 normalizePracticeConfig 兜底，避免非法 JSON 或旧版备份导致 QuizEngine 崩溃
   private config: PracticeConfig = (() => {
     try {
       const raw = JSON.parse((router.getParams() as Record<string, string> | null)?.['config'] ?? '{}') as Partial<PracticeConfig>;
