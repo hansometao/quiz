@@ -2,6 +2,7 @@ import router from '@ohos.router';
 import { DatabaseService } from '../service/DatabaseService';
 import { QuestionBank } from '../model/Models';
 import { BankCard } from '../components/BankCard';
+import { Breakpoint } from '../utils/BreakpointUtils';
 import { EmptyState, LoadingOverlay } from '../components/CommonComponents';
 
 @Component
@@ -10,7 +11,15 @@ export struct BankListPage {
   @State loading: boolean = false;
   @StorageProp('tabTick') @Watch('onTabTick') private tabTick: number = 0;
   @StorageProp('activeTab') private activeTab: number = 0;
+  // M1：消费 BreakpointSystem 写入的断点（此前 register 后零消费端，死接线）。
+  // sm 单列（手机竖屏），md/lg 双列（手机横屏/平板/折叠屏展开）
+  @StorageProp('breakpoint') bp: string = Breakpoint.SM;
   private isAlive: boolean = true;
+
+  /** 断点 → 列数：仅 sm 单列，md/lg 双列 */
+  private get columns(): number {
+    return this.bp === Breakpoint.SM ? 1 : 2;
+  }
 
   aboutToAppear() {
     this.loadBanks();
@@ -71,9 +80,11 @@ export struct BankListPage {
             onAction: () => router.pushUrl({ url: 'pages/ImportPage' }),
           })
         } else {
-          List({ space: 12 }) {
+          // M1：列数随断点变化——sm 单列，md/lg 双列。此前恒单列，
+          // BreakpointSystem 注册后无人消费，平板/折叠屏下仍是手机布局
+          Grid() {
             ForEach(this.banks, (bank: QuestionBank) => {
-              ListItem() {
+              GridItem() {
                 BankCard({
                   bank,
                   onPractice: () => router.pushUrl({
@@ -88,6 +99,9 @@ export struct BankListPage {
               }
             }, (bank: QuestionBank) => bank.id.toString())
           }
+          .columnsTemplate(this.columns === 1 ? '1fr' : '1fr 1fr')
+          .columnsGap(12)
+          .rowsGap(12)
           .layoutWeight(1)
           .padding({ left: 16, right: 16, bottom: 16 })
         }
