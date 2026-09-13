@@ -1,5 +1,15 @@
-// @ohos.file.picker 测试桩
-export class DocumentViewPicker {
-  select(): Promise<string[]> { return Promise.resolve([]); }
+// @ohos.file.picker 测试桩：DocumentViewPicker.select 经 pickerState 注入返回 uri 列表。
+const pickerState = {
+  uris: [] as string[],
+};
+
+class DocumentViewPicker {
+  constructor(_ctx?: unknown) {}
+  async select(_opts?: unknown): Promise<string[]> {
+    return pickerState.uris;
+  }
 }
-export default { DocumentViewPicker };
+
+const picker = { DocumentViewPicker };
+export default picker;
+export { pickerState };

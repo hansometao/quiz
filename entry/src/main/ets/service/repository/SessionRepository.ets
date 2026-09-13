@@ -6,6 +6,11 @@ import relationalStore from '@ohos.data.relationalStore';
 import { PracticeSession, AnswerRecord, PracticeMode, SessionStatus, PracticeConfig, normalizePracticeConfig } from '../../model/Models';
 import { QuestionRepository } from './QuestionRepository';
 
+/** 错题联动动作：与答题记录同事务执行，保证"落账 + 错题本"原子性（H3） */
+export type MistakeAction =
+  | { mode: 'wrong'; bankId: number; myAnswer: string }   // 答错：upsert 错题
+  | { mode: 'correct'; threshold: number };               // 答对：连对+1，达阈值移出
+
 export class SessionRepository {
   constructor(private store: relationalStore.RdbStore) {}
 
@@ -106,9 +111,11 @@ export class SessionRepository {
     return sessions;
   }
 
-  /** 插入答题记录并同步统计（事务保证原子性，避免答题记录与统计表不一致） */
+  /** 错题联动动作：与答题记录同事务执行，保证"落账 + 错题本"原子性（H3） */
+  /** 插入答题记录并同步统计与错题本（单事务保证三步原子性） */
   async insertAnswer(sessionId: number, questionId: number, userAnswer: string,
-                     isCorrect: number, timeSpentMs: number): Promise<void> {
+                     isCorrect: number, timeSpentMs: number,
+                     mistakeAction?: MistakeAction): Promise<void> {
     const now = Math.floor(Date.now() / 1000);
     const values: relationalStore.ValuesBucket = {
       session_id:   sessionId,
@@ -132,6 +139,37 @@ export class SessionRepository {
            updated_at = ?`,
         [questionId, correct, now, now, correct, now, now]
       );
+      // 错题联动与答题记录同事务（H3）：否则 A 成功 B 失败后重试会重复计账
+      if (mistakeAction) {
+        if (mistakeAction.mode === 'wrong') {
+          await this.store.executeSql(
+            `INSERT INTO mistakes (question_id, bank_id, wrong_count, consecutive_correct, my_last_answer, last_practice_time, added_at, updated_at)
+             VALUES (?, ?, 1, 0, ?, ?, ?, ?)
+             ON CONFLICT(question_id) DO UPDATE SET
+               bank_id = ?,
+               wrong_count = wrong_count + 1,
+               consecutive_correct = 0,
+               my_last_answer = ?,
+               last_practice_time = ?,
+               updated_at = ?`,
+            [questionId, mistakeAction.bankId, mistakeAction.myAnswer, now, now, now,
+             mistakeAction.bankId, mistakeAction.myAnswer, now, now]
+          );
+        } else {
+          await this.store.executeSql(
+            `UPDATE mistakes
+               SET consecutive_correct = consecutive_correct + 1,
+                   last_practice_time = ?,
+                   updated_at = ?
+             WHERE question_id = ?`,
+            [now, now, questionId]
+          );
+          await this.store.executeSql(
+            `DELETE FROM mistakes WHERE question_id = ? AND consecutive_correct >= ?`,
+            [questionId, mistakeAction.threshold]
+          );
+        }
+      }
       await this.store.commit();
     } catch (err) {
       await this.store.rollBack();

@@ -162,8 +162,9 @@ export class BackupService {
         return { success: false, message: '文件格式不正确：数据字段缺失或类型错误' };
       }
 
-      // 还原前自动快照：将当前数据导出到 cacheDir 作为回滚点，
-      // 万一还原失败或用户误操作，可从快照恢复
+      // 还原前自动快照：将当前数据导出到 filesDir 作为回滚点，
+      // 万一还原失败或用户误操作，可从快照恢复（存 filesDir 而非 cacheDir——
+      // cacheDir 会被系统按需清理，不能承担回滚点职责）
       let snapshotPath: string | null = null;
       try {
         snapshotPath = await this.createSnapshot(ctx);
@@ -181,7 +182,7 @@ export class BackupService {
 
       return {
         success: true,
-        message: `还原成功：共恢复 ${result.inserted} 条数据（已覆盖原有数据${snapshotPath ? '，还原前快照已保存' : ''}）`
+        message: `还原成功：共恢复 ${result.inserted} 条数据（已覆盖原有数据${snapshotPath ? '，可在设置页撤销本次还原' : ''}）`
       };
     } catch (e) {
       if (tmpPath) this.safeUnlink(tmpPath);
@@ -260,11 +261,11 @@ export class BackupService {
   // ─────────────────── 工具方法 ───────────────────
 
   /**
-   * 还原前自动快照：将当前 DB 数据导出到 cacheDir 作为回滚点。
-   * 快照文件命名含时间戳，保留最近一份；失败不阻断还原流程。
+   * 还原前自动快照：将当前 DB 数据导出到 filesDir 作为回滚点。
+   * 快照文件固定命名（覆盖式保留最近一份）；失败不阻断还原流程。
    */
   private async createSnapshot(ctx: common.UIAbilityContext): Promise<string> {
-    const snapshotPath = ctx.cacheDir + '/pre_restore_snapshot.quizbackup';
+    const snapshotPath = ctx.filesDir + '/pre_restore_snapshot.quizbackup';
     const data = await this.collectBackupData();
 
     const json = JSON.stringify(data);
@@ -275,6 +276,72 @@ export class BackupService {
       await fs.close(file);
     }
     return snapshotPath;
+  }
+
+  /**
+   * 是否存在可用的还原前快照（供设置页决定是否展示"撤销还原"入口）
+   */
+  hasSnapshot(ctx: common.UIAbilityContext): boolean {
+    return fs.accessSync(ctx.filesDir + '/pre_restore_snapshot.quizbackup');
+  }
+
+  /**
+   * 撤销还原：从还原前快照恢复数据（再次走覆盖式还原）。
+   * 成功后删除快照，防止二次撤销把更早的状态套娃回来。
+   * 返回 { success, message }
+   */
+  async restoreFromSnapshot(ctx: common.UIAbilityContext): Promise<{ success: boolean; message: string }> {
+    const snapshotPath = ctx.filesDir + '/pre_restore_snapshot.quizbackup';
+    let tmpPath: string | null = null;
+    try {
+      if (!fs.accessSync(snapshotPath)) {
+        return { success: false, message: '没有可撤销的快照' };
+      }
+
+      // 复用 importBackup 的读取与校验链：拷贝→大小上限→解码→结构强校验
+      const stat = await fs.stat(snapshotPath);
+      if (stat.size > MAX_BACKUP_FILE_SIZE) {
+        return { success: false, message: '快照文件异常（过大），已拒绝恢复' };
+      }
+      const buf = new ArrayBuffer(stat.size);
+      const file = await fs.open(snapshotPath, fs.OpenMode.READ_ONLY);
+      try {
+        await fs.read(file.fd, buf);
+      } finally {
+        await fs.close(file);
+      }
+      const json = this.textDecoder.decodeWithStream(new Uint8Array(buf), { stream: false });
+      const data = JSON.parse(json) as Partial<BackupData>;
+
+      if (typeof data.version !== 'number' || data.version < 1) {
+        return { success: false, message: '快照格式不正确：version 字段缺失或非法' };
+      }
+      if (!Array.isArray(data.banks) || !Array.isArray(data.questions) ||
+          !Array.isArray(data.sessions) || !Array.isArray(data.answerRecords) ||
+          !Array.isArray(data.mistakes)) {
+        return { success: false, message: '快照格式不正确：数据字段缺失或类型错误' };
+      }
+
+      // 撤销前先把"被撤销的坏数据"留一份新快照（覆盖旧快照）——若撤销本身选错了文件仍可再次撤销
+      try {
+        await this.createSnapshot(ctx);
+      } catch (e) {
+        console.warn('撤销前快照更新失败', e);
+      }
+
+      const result = await this.db.backup.restore(data.banks, data.questions, data.sessions, data.answerRecords, data.mistakes);
+
+      // 撤销成功，消费掉快照
+      this.safeUnlink(snapshotPath);
+      return {
+        success: true,
+        message: `已撤销本次还原：恢复 ${result.inserted} 条数据（还原前状态已找回）`
+      };
+    } catch (e) {
+      if (tmpPath) this.safeUnlink(tmpPath);
+      const err = e as Error;
+      return { success: false, message: '撤销还原失败：' + err.message };
+    }
   }
 
   private dateTag(): string {

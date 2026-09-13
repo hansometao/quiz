@@ -20,6 +20,8 @@ export struct SettingsPage {
   @State importing: boolean = false;
   @State exportingMistakes: boolean = false;
   @State clearingHistory: boolean = false;
+  @State undoingRestore: boolean = false;
+  @State hasRestoreSnapshot: boolean = false;
 
   private pref: preferences.Preferences | null = null;
   private backup: BackupService = BackupService.getInstance();
@@ -27,6 +29,8 @@ export struct SettingsPage {
   private isAlive: boolean = true;
   // save 防抖计时器：Slider 拖动时高频触发 onChange，防抖避免每 tick 都 flush 持久化
   private saveDebounceTimer: number = -1;
+  // 防抖期间暂存的待写键值：页面销毁时 aboutToDisappear 据此 flush，防修改丢失（M2）
+  private pendingSave: { key: string; value: preferences.ValueType } | null = null;
   // L-8：toast 定时器句柄（与 BankDetailPage 同款互斥逻辑）
   private toastTimer: number = -1;
 
@@ -36,8 +40,15 @@ export struct SettingsPage {
 
   aboutToDisappear() {
     this.isAlive = false;
-    // L-7：页面销毁时清理在途定时器，防止销毁后回调仍执行
+    // M2：页面销毁时若防抖尚未落库，同步 flush 待写键值，防修改静默丢失
+    // （此前 clearTimeout 直接吞掉防抖，滑条最后一次拖动的值会丢）
     if (this.saveDebounceTimer >= 0) { clearTimeout(this.saveDebounceTimer); this.saveDebounceTimer = -1; }
+    if (this.pendingSave && this.pref) {
+      const { key, value } = this.pendingSave;
+      this.pendingSave = null;
+      // 销毁后不再写 @State，只做持久化；失败仅告警
+      this.save(key, value).catch((e: Error) => console.error('flush pending save failed', e));
+    }
     if (this.toastTimer >= 0) { clearTimeout(this.toastTimer); this.toastTimer = -1; }
   }
 
@@ -55,6 +66,8 @@ export struct SettingsPage {
       if (!this.isAlive) return;
       // 阈值统一由 DatabaseService 管理（键 'auto_remove_threshold'），避免双键分叉
       this.autoRemoveThreshold = DatabaseService.getInstance().autoRemoveThreshold;
+      // 快照存在性：决定"撤销还原"入口是否展示
+      this.hasRestoreSnapshot = this.backup.hasSnapshot(ctx);
     } catch (e) {
       if (!this.isAlive) return;
       console.error('加载设置失败', e);
@@ -69,9 +82,12 @@ export struct SettingsPage {
 
   /** 防抖持久化：Slider 拖动时高频触发，延迟 400ms 合并写入，避免 I/O 风暴 */
   saveDebounced(key: string, value: preferences.ValueType): void {
+    // 暂存待写键值：即使防抖定时器被销毁吞掉，aboutToDisappear 仍可据此 flush（M2）
+    this.pendingSave = { key, value };
     if (this.saveDebounceTimer >= 0) clearTimeout(this.saveDebounceTimer);
     this.saveDebounceTimer = setTimeout(() => {
       this.saveDebounceTimer = -1;
+      this.pendingSave = null;
       this.save(key, value);
     }, 400);
   }
@@ -136,12 +152,55 @@ export struct SettingsPage {
       const ctx = getContext(this) as common.UIAbilityContext;
       const result = await this.backup.importBackup(ctx);
       if (!this.isAlive) return;
+      this.hasRestoreSnapshot = this.backup.hasSnapshot(getContext(this) as common.UIAbilityContext);
       this.showMsg(result.message);
     } catch (e) {
       if (!this.isAlive) return;
       this.showMsg('还原失败：' + (e as Error).message);
     } finally {
       if (this.isAlive) this.importing = false;
+    }
+  }
+
+  // ── 撤销还原（快照回滚）──
+  /**
+   * 从还原前快照恢复数据。还原是覆盖性破坏操作，撤销同理，先弹确认框
+   */
+  confirmUndoRestore(): void {
+    this.getUIContext().showAlertDialog({
+      title: '撤销本次还原？',
+      message: '将用还原前自动保存的快照覆盖当前数据，恢复到导入前的状态。',
+      autoCancel: true,
+      alignment: DialogAlignment.Center,
+      primaryButton: {
+        value: '取消',
+        action: () => {},
+      },
+      secondaryButton: {
+        value: '撤销还原',
+        fontColor: $r('app.color.danger'),
+        action: () => this.doUndoRestore(),
+      },
+    });
+  }
+
+  async doUndoRestore() {
+    if (this.undoingRestore) return;
+    this.undoingRestore = true;
+    try {
+      const ctx = getContext(this) as common.UIAbilityContext;
+      const result = await this.backup.restoreFromSnapshot(ctx);
+      if (!this.isAlive) return;
+      if (result.success) {
+        // 快照已消费，隐藏撤销入口
+        this.hasRestoreSnapshot = false;
+      }
+      this.showMsg(result.message);
+    } catch (e) {
+      if (!this.isAlive) return;
+      this.showMsg('撤销还原失败：' + (e as Error).message);
+    } finally {
+      if (this.isAlive) this.undoingRestore = false;
     }
   }
 
@@ -229,11 +288,12 @@ export struct SettingsPage {
                 .padding({ left: 16, right: 16, bottom: 12 })
                 .onChange((v) => {
                   this.autoRemoveThreshold = Math.round(v);
-                  // M-15 修复：拖动后直接返回页面时 onSubmit 不会触发，
-                  // 原先只在 onSubmit 持久化会导致修改静默丢失；
-                  // 改为 onChange 防抖持久化（拖动中每 tick 只重置定时器，
-                  // 停止拖动 400ms 后落库），aboutToDisappear 时再 flush 一次
-                  this.saveDebounced('autoRemoveThreshold', Math.round(v));
+                  // M-15/M2 修复：阈值持久化统一走 DatabaseService.syncAutoRemoveThreshold
+                  // （键 'auto_remove_threshold'）。此前 saveDebounced 写的是驼峰键
+                  // 'autoRemoveThreshold'，无读取方、且页面销毁时防抖被吞，修改静默丢失；
+                  // 拖动只改内存态，落库仍由 onSubmit 立即触发——拖动后直接离开页面
+                  // 由 onSubmit 兜底，不再有"400ms 内离开丢修改"窗口
+                  // （onSubmit 在滑块松手时必触发，与是否离开页面无关）
                 })
                 .onSubmit(() => {
                   // 拖动结束时立即持久化（滑块松手即触发），不走防抖等待
@@ -282,6 +342,27 @@ export struct SettingsPage {
               .onClick(() => this.confirmImport())
 
               Divider().color($r('app.color.border')).margin({ left: 16 })
+
+              // 撤销还原（仅在存在还原前快照时展示）
+              if (this.hasRestoreSnapshot) {
+                Row() {
+                  Column() {
+                    Text('撤销还原').fontSize(15).fontColor($r('app.color.danger'))
+                    Text('用还原前自动保存的快照恢复到导入前状态').fontSize(12).fontColor($r('app.color.text_secondary'))
+                      .margin({ top: 2 })
+                  }
+                  .layoutWeight(1).alignItems(HorizontalAlign.Start)
+                  if (this.undoingRestore) {
+                    LoadingProgress().width(20).height(20).color($r('app.color.primary'))
+                  } else {
+                    Text('撤销').fontSize(14).fontColor($r('app.color.danger'))
+                  }
+                }
+                .padding({ left: 16, right: 16, top: 14, bottom: 14 })
+                .onClick(() => this.confirmUndoRestore())
+
+                Divider().color($r('app.color.border')).margin({ left: 16 })
+              }
 
               // 导出错题 CSV
               Row() {

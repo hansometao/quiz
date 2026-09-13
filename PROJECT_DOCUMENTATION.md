@@ -47,7 +47,7 @@
 | UI 框架 | ArkUI 声明式范式（@Component / @Entry / build()）|
 | 应用类型 | HarmonyOS NEXT（API 12+），单 HAP 模块 |
 | 兼容 SDK | 5.0.0(12) |
-| 目标 SDK | 6.0.1(21) |
+| 目标 SDK | 5.0.0(12) |
 | 运行 OS | HarmonyOS |
 | 构建工具 | hvigor（@ohos/hvigor-ohos-plugin）|
 | 本地数据库 | relationalStore（SQLite）|
@@ -57,12 +57,7 @@
 
 ### 申请的权限
 
-| 权限 | 用途 |
-| --- | --- |
-| `ohos.permission.READ_MEDIA` | 导入 Excel 题库读取存储 |
-| `ohos.permission.WRITE_MEDIA` | 导出备份写入存储 |
-| `ohos.permission.READ_DOCUMENT` | 读取文档文件 |
-| `ohos.permission.WRITE_DOCUMENT` | 写入文档文件 |
+**无**——module.json5 未声明任何 `requestPermissions`。应用完全离线运行：Excel 导入与备份文件选择均通过系统 Picker（DocumentViewPicker）由用户手动授权单次访问，无需媒体/文档读写权限；数据全部存储于应用沙盒。这是本项目的安全设计优点（零权限 = 零敏感授权面）。
 
 ---
 
@@ -240,7 +235,7 @@ quiz-harmony/
 | [SessionRepository.ets](file:///workspace/entry/src/main/ets/service/repository/SessionRepository.ets) | practice_sessions + answer_records | 会话创建/完成/放弃；答题记录插入（并 upsert question_stats）；按会话查询答题（JOIN 题目） |
 | [StatsRepository.ets](file:///workspace/entry/src/main/ets/service/repository/StatsRepository.ets) | question_stats + 聚合查询 | 每日统计、分类统计、综合统计 |
 | [MistakeRepository.ets](file:///workspace/entry/src/main/ets/service/repository/MistakeRepository.ets) | mistakes | 错题 upsert（答错）、连续正确计数与自动移出（答对）、查询错题本（JOIN 题目） |
-| [BackupRepository.ets](file:///workspace/entry/src/main/ets/service/repository/BackupRepository.ets) | 全表 | 事务批量 `INSERT OR IGNORE` 还原（追加模式，返回插入/跳过计数）；清除全部历史记录 |
+| [BackupRepository.ets](file:///workspace/entry/src/main/ets/service/repository/BackupRepository.ets) | 全表 | 事务覆盖式还原（先清空六表再插入，主键引用预检过滤悬空行，返回插入/跳过计数）；清除全部历史记录 |
 
 ### 5.4 utils — 工具层
 
@@ -389,7 +384,7 @@ quiz-harmony/
 
 | 方法 | 说明 |
 | --- | --- |
-| `restore(banks, questions, sessions, records, mistakes)` | 事务批量 `INSERT OR IGNORE` 还原（追加模式，保留原 ID），返回 `{ inserted, skipped }` |
+| `restore(banks, questions, sessions, records, mistakes)` | 事务覆盖式还原：先清空全部业务表再插入（保留原 ID），还原前按备份内主键集合做引用预检，悬空引用行跳过计入 skipped，返回 `{ inserted, skipped }` |
 | `clearAllHistory()` | 清除答题/会话/统计/错题（保留题库与题目），事务执行 |
 
 ### 6.8 QuizEngine（出题与判题引擎）
@@ -425,7 +420,7 @@ quiz-harmony/
 
 | 方法 | 说明 |
 | --- | --- |
-| `exportBackup(ctx)` | 并行拉取各题库题目与各会话答题记录 → JSON → 写入沙盒 `filesDir/quiz_backup_YYYYMMDD_HHmm.quizbackup` → 返回路径 |
+| `exportBackup(ctx)` | 分批并发（mapBatched，批上限 8）拉取各题库题目与各会话答题记录 → JSON → 写入沙盒 `filesDir/quiz_backup_YYYYMMDD_HHmm.quizbackup` → 返回路径 |
 | `importBackup(ctx)` | 弹 DocumentViewPicker → 拷贝到 cacheDir → `util.TextDecoder.decodeWithStream` 解码 → 校验 → `backup.restore` → 清理临时文件，返回 `{ success, message }` |
 | `exportMistakesCSV(ctx)` | 拉取全部错题 → 拼装 CSV（含分类/难度/解析等完整字段，带 UTF-8 BOM）→ 写入沙盒 |
 | `shareFile(ctx, filePath)` | 通过 `ohos.want.action.sendData` 调起系统分享 |
@@ -696,7 +691,7 @@ SettingsPage
 1. 安装 **DevEco Studio**（HarmonyOS 官方 IDE，建议最新版本，需支持 API 12+）。
 2. 在 DevEco Studio 中配置 HarmonyOS SDK：
    - 兼容 SDK：`5.0.0(12)`
-   - 目标 SDK：`6.0.1(21)`
+   - 目标 SDK：`5.0.0(12)`
 3. （可选）配置签名：在 [build-profile.json5](file:///workspace/build-profile.json5) 的 `app.signingConfigs` 中配置签名信息，或使用 DevEco Studio 的「自动签名」。
 
 ### 10.2 打开与构建
@@ -750,7 +745,7 @@ SettingsPage
     "mistakes": [...]
   }
   ```
-- 还原策略：追加模式（`INSERT OR IGNORE`），保留原 ID 关系，跳过已存在的 ID，不清除现有数据。还原后返回新增/跳过计数。如需覆盖请先在设置中「清除答题记录」。
+- 还原策略：覆盖模式——事务内先清空六张业务表再插入备份数据（保留原 ID 关系），还原前做引用预检，悬空引用行跳过（计入 skipped）。还原前自动快照存于沙盒 `filesDir/pre_restore_snapshot.quizbackup`，可在设置页「撤销还原」回滚。
 - 错题 CSV 导出带 UTF-8 BOM（`\uFEFF`），保证 Excel 正确识别编码，包含分类/难度/解析/错误次数等完整字段。
 
 ---
@@ -814,7 +809,7 @@ SettingsPage
 
 ### 11.11 并发与流式处理
 
-- `BackupService.exportBackup` 使用 `Promise.all` 并行拉取各题库题目与各会话答题记录，提升多题库场景下的导出速度。
+- `BackupService.exportBackup` 使用 `mapBatched` 分批并发拉取各题库题目与各会话答题记录（批上限 8，兼顾速度与内存/调度压力），提升多题库场景下的导出速度。
 - `importBackup` 使用 `util.TextDecoder.decodeWithStream` 流式解码，避免按字节切分破坏多字节字符。
 - `ZipUtils.decodeUtf8` 同样使用流式解码，规避 `String.fromCharCode` 的 O(n²) 性能问题与多字节边界解析失败。
 

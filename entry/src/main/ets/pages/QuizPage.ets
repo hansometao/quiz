@@ -262,6 +262,8 @@ struct QuizPage {
     const userAns = this.currentAnswer || '';
     const timeMs = Date.now() - this.questionStartTime;
     const db = DatabaseService.getInstance();
+    // await 期间用户可能点"下一题"使 currentIdx 前进，回滚必须用提交时捕获的索引
+    const submittedIdx = this.currentIdx;
 
     const engine = new QuizEngine();
     let isCorrect: AnswerStatus;
@@ -272,18 +274,24 @@ struct QuizPage {
     }
 
     try {
-      await db.sessions.insertAnswer(this.sessionId, q.id, userAns, isCorrect, timeMs);
-      // 同步更新错题本（使用用户设置的阈值）
+      // H3：答题落库 + 统计 + 错题本更新合并为一次事务调用，失败要么全回滚要么全成功，
+      // 避免 insertAnswer 成功后 mistakes 写入失败、重试导致重复计账
       if (isCorrect === AnswerStatus.WRONG) {
-        await db.mistakes.upsert(q.id, q.bankId, userAns);
+        await db.sessions.insertAnswer(this.sessionId, q.id, userAns, isCorrect, timeMs,
+          { mode: 'wrong', bankId: q.bankId, myAnswer: userAns });
       } else if (isCorrect === AnswerStatus.CORRECT) {
-        await db.mistakes.onCorrectAnswer(q.id, db.autoRemoveThreshold);
+        await db.sessions.insertAnswer(this.sessionId, q.id, userAns, isCorrect, timeMs,
+          { mode: 'correct', threshold: db.autoRemoveThreshold });
+      } else {
+        // 简答 PENDING：不进错题本
+        await db.sessions.insertAnswer(this.sessionId, q.id, userAns, isCorrect, timeMs);
       }
     } catch (e) {
-      // DB 写入失败：回滚 submitted 标志，让用户可重试
+      // DB 写入失败：回滚提交那道题的 submitted 标志，让用户可重试
+      // （用户在 await 期间可能已点"下一题"前进，不能用 currentIdx）
       console.error('QuizPage submit 失败', e);
       const rolledBack = new Map(this.submitted);
-      rolledBack.set(this.currentIdx, false);
+      rolledBack.set(submittedIdx, false);
       this.submitted = rolledBack;
       promptAction.showToast({ message: '提交失败，请重试' });
     } finally {
